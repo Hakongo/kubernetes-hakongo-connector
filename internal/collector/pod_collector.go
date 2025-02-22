@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+	metricsv1beta1 "k8s.io/metrics/pkg/apis/metrics/v1beta1"
 	"k8s.io/metrics/pkg/client/clientset/versioned"
 )
 
@@ -25,13 +26,9 @@ func NewPodCollector(kubeClient kubernetes.Interface, metricsClient versioned.In
 	}
 }
 
-func (pc *PodCollector) Name() string {
-	return "pod-collector"
-}
+func (pc *PodCollector) Name() string { return "pod-collector" }
 
-func (pc *PodCollector) Description() string {
-	return "Collects resource usage metrics for Kubernetes pods"
-}
+func (pc *PodCollector) Description() string { return "Collects resource usage metrics for Kubernetes pods" }
 
 func (pc *PodCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) {
 	var metrics []ResourceMetrics
@@ -102,24 +99,43 @@ func (pc *PodCollector) isNamespaceExcluded(namespace string) bool {
 	return true
 }
 
-func (pc *PodCollector) calculateCPUMetrics(pod *corev1.Pod, metrics *corev1.Pod) CPUMetrics {
-	return CPUMetrics{}
+func (pc *PodCollector) calculateCPUMetrics(pod *corev1.Pod, metrics *metricsv1beta1.PodMetrics) CPUMetrics {
+	var cpu CPUMetrics
+	for _, container := range metrics.Containers {
+		cpu.UsageNanoCores += container.Usage.Cpu().Value()
+		if container.Usage.Cpu().Value() > 0 {
+			cpu.UsageCorePercent = float64(container.Usage.Cpu().Value()) / float64(1e9)
+		}
+	}
+	return cpu
 }
 
-func (pc *PodCollector) calculateMemoryMetrics(pod *corev1.Pod, metrics *corev1.Pod) MemoryMetrics {
-	return MemoryMetrics{}
+func (pc *PodCollector) calculateMemoryMetrics(pod *corev1.Pod, metrics *metricsv1beta1.PodMetrics) MemoryMetrics {
+	var mem MemoryMetrics
+	for _, container := range metrics.Containers {
+		mem.UsageBytes += container.Usage.Memory().Value()
+	}
+	return mem
 }
 
 func (pc *PodCollector) calculateStorageMetrics(pod *corev1.Pod) StorageMetrics {
-	return StorageMetrics{}
+	var storage StorageMetrics
+	for _, volume := range pod.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil {
+			storage.PVCName = volume.PersistentVolumeClaim.ClaimName
+		}
+	}
+	return storage
 }
 
-func (pc *PodCollector) calculateNetworkMetrics(metrics *corev1.Pod) NetworkMetrics {
+func (pc *PodCollector) calculateNetworkMetrics(metrics *metricsv1beta1.PodMetrics) NetworkMetrics {
 	return NetworkMetrics{}
 }
 
 func (pc *PodCollector) calculateCostMetrics(cpu CPUMetrics, memory MemoryMetrics, storage StorageMetrics, network NetworkMetrics) CostMetrics {
 	return CostMetrics{
-		Currency: "USD",
+		Currency:    "USD",
+		CPUCost:    cpu.UsageCorePercent * 0.04,
+		MemoryCost: float64(memory.UsageBytes) / float64(1<<30) * 0.01,
 	}
 }

@@ -23,19 +23,13 @@ func init() {
 }
 
 func main() {
-	var (
-		metricsAddr          string
-		enableLeaderElection bool
-		probeAddr           string
-	)
+	var metricsAddr, probeAddr string
+	var enableLeaderElection bool
 
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager.")
-	opts := zap.Options{
-		Development: true,
-	}
+	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "metrics endpoint addr")
+	flag.StringVar(&probeAddr, "probe-addr", ":8081", "probe endpoint addr")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "leader election")
+	opts := zap.Options{Development: true}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
@@ -43,31 +37,28 @@ func main() {
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:                 scheme,
-		MetricsBindAddress:     metricsAddr,
-		Port:                   9443,
+		Metrics:               ctrl.NewMetricsOptions(),
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "hakongo-connector.k8s.io",
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "manager setup failed")
 		os.Exit(1)
 	}
 
-	// TODO: Add controllers here
-
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+	if err := mgr.AddHealthzCheck("health", healthz.Ping); err != nil {
+		setupLog.Error(err, "healthcheck setup failed")
 		os.Exit(1)
 	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+	if err := mgr.AddReadyzCheck("ready", healthz.Ping); err != nil {
+		setupLog.Error(err, "readycheck setup failed")
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
+	setupLog.Info("starting")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
+		setupLog.Error(err, "manager failed")
 		os.Exit(1)
 	}
 }

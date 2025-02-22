@@ -3,29 +3,27 @@ package collector
 import (
 	"context"
 	"time"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ResourceMetrics represents collected metrics for a Kubernetes resource
 type ResourceMetrics struct {
 	// Resource metadata
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	Kind      string            `json:"kind"`
-	Labels    map[string]string `json:"labels"`
+	Name        string            `json:"name"`
+	Namespace   string            `json:"namespace"`
+	Kind        string            `json:"kind"`
+	Labels      map[string]string `json:"labels"`
 
 	// Collection metadata
 	CollectedAt time.Time `json:"collectedAt"`
 
 	// Resource usage metrics
-	CPU    CPUMetrics    `json:"cpu"`
-	Memory MemoryMetrics `json:"memory"`
-	Storage StorageMetrics `json:"storage"`
-	Network NetworkMetrics `json:"network"`
+	CPU         CPUMetrics        `json:"cpu"`
+	Memory      MemoryMetrics     `json:"memory"`
+	Storage     StorageMetrics    `json:"storage"`
+	Network     NetworkMetrics    `json:"network"`
 
 	// Cost related information
-	Cost CostMetrics `json:"cost"`
+	Cost        CostMetrics       `json:"cost"`
 }
 
 // CPUMetrics represents CPU usage metrics
@@ -49,10 +47,10 @@ type MemoryMetrics struct {
 
 // StorageMetrics represents storage usage metrics
 type StorageMetrics struct {
-	UsageBytes   int64 `json:"usageBytes"`
-	CapacityBytes int64 `json:"capacityBytes"`
-	Available    int64 `json:"available"`
-	PVCName      string `json:"pvcName,omitempty"`
+	UsageBytes    int64  `json:"usageBytes"`
+	CapacityBytes int64  `json:"capacityBytes"`
+	Available     int64  `json:"available"`
+	PVCName       string `json:"pvcName,omitempty"`
 }
 
 // NetworkMetrics represents network usage metrics
@@ -92,20 +90,20 @@ type Collector interface {
 // CollectorConfig represents common configuration for collectors
 type CollectorConfig struct {
 	// CollectionInterval is how often metrics should be collected
-	CollectionInterval time.Duration
+	CollectionInterval         time.Duration
 
 	// Namespaces to include in collection (empty means all)
-	IncludeNamespaces []string
+	IncludeNamespaces         []string
 
 	// Namespaces to exclude from collection
-	ExcludeNamespaces []string
+	ExcludeNamespaces         []string
 
 	// Labels to include in collection (empty means all)
-	IncludeLabels map[string]string
+	IncludeLabels             map[string]string
 
 	// Resource types to collect metrics for
-	ResourceTypes []string
+	ResourceTypes             []string
 
 	// MaxConcurrentCollections limits concurrent metric collection
-	MaxConcurrentCollections int
+	MaxConcurrentCollections  int
 }
