@@ -30,10 +30,13 @@ type ConnectorConfigSpec struct {
 	// +kubebuilder:validation:Required
 	APIKey string `json:"apiKey"`
 
-	// CollectionInterval is the interval at which metrics are collected (in seconds)
-	// +kubebuilder:validation:Minimum=30
-	// +kubebuilder:default=300
-	CollectionInterval int32 `json:"collectionInterval"`
+	// Collectors specifies which resource collectors to enable
+	// +optional
+	Collectors CollectorConfig `json:"collectors,omitempty"`
+
+	// HakonGo configuration
+	// +kubebuilder:validation:Required
+	HakonGo HakonGoConfig `json:"hakongo"`
 
 	// IncludeNamespaces is a list of namespaces to include in metrics collection
 	// If empty, all namespaces will be included except those in ExcludeNamespaces
@@ -44,13 +47,46 @@ type ConnectorConfigSpec struct {
 	// +optional
 	ExcludeNamespaces []string `json:"excludeNamespaces,omitempty"`
 
-	// Collectors specifies which resource collectors to enable
-	// +optional
-	Collectors CollectorConfig `json:"collectors,omitempty"`
+	// CollectionInterval is the interval at which metrics are collected (in seconds)
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Pattern=^[0-9]+[mh]$
+	// +kubebuilder:default="5m"
+	CollectionInterval string `json:"collectionInterval"`
 
 	// CostConfig specifies the configuration for cost calculations
 	// +optional
 	CostConfig CostConfig `json:"costConfig,omitempty"`
+}
+
+// HakonGoConfig defines the configuration for connecting to HakonGo
+type HakonGoConfig struct {
+	// BaseURL is the base URL of the HakonGo API
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Pattern=^https?://.*
+	BaseURL string `json:"baseUrl"`
+
+	// ClusterID is the unique identifier for this cluster in HakonGo
+	// +kubebuilder:validation:Required
+	ClusterID string `json:"clusterId"`
+
+	// APIKeySecret references the secret containing the API key
+	// +kubebuilder:validation:Required
+	APIKeySecret SecretKeyRef `json:"apiKeySecret"`
+}
+
+// SecretKeyRef references a key in a Secret
+type SecretKeyRef struct {
+	// Name is the name of the secret
+	// +kubebuilder:validation:Required
+	Name string `json:"name"`
+
+	// Namespace is the namespace of the secret
+	// +kubebuilder:validation:Required
+	Namespace string `json:"namespace"`
+
+	// Key is the key in the secret
+	// +kubebuilder:validation:Required
+	Key string `json:"key"`
 }
 
 // +kubebuilder:object:generate=true
@@ -108,14 +144,12 @@ type ConnectorConfigStatus struct {
 	// LastCollectionTime is the timestamp of the last successful metrics collection
 	// +optional
 	LastCollectionTime *metav1.Time `json:"lastCollectionTime,omitempty"`
-
-	// LastCollectionStatus indicates the status of the last collection attempt
+	// MetricsCollected is the number of metrics collected
 	// +optional
-	LastCollectionStatus string `json:"lastCollectionStatus,omitempty"`
-
-	// Conditions represent the latest available observations of an object's state
+	MetricsCollected int32 `json:"metricsCollected,omitempty"`
+	// LastError is the error message of the last collection attempt
 	// +optional
-	Conditions []metav1.Condition `json:"conditions,omitempty"`
+	LastError string `json:"lastError,omitempty"`
 }
 
 // +kubebuilder:object:root=true

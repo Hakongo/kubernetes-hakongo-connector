@@ -5,6 +5,7 @@ import (
 	"os"
 
 	hakongov1alpha1 "github.com/hakongo/kubernetes-connector/api/v1alpha1"
+	"github.com/hakongo/kubernetes-connector/internal/controller"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -58,6 +59,11 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("ready", healthz.Ping); err != nil {
 		setupLog.Error(err, "readycheck setup failed")
+		os.Exit(1)
+	}
+
+	if err := controller.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "controller setup failed")
 		os.Exit(1)
 	}
 

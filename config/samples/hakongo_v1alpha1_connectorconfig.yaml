@@ -1,0 +1,34 @@
+apiVersion: hakongo.io/v1alpha1
+kind: ConnectorConfig
+metadata:
+  name: demo-connector
+spec:
+  # HakonGo configuration
+  hakongo:
+    baseUrl: "https://api.hakongo.io"
+    clusterId: "demo-cluster"
+    apiKeySecret:
+      name: hakongo-api-key
+      namespace: default
+      key: api-key
+
+  # Collection configuration
+  collectionInterval: "5m"
+  includeNamespaces:
+    - default
+    - kube-system
+  excludeNamespaces:
+    - kube-public
+
+  # Enable collectors
+  collectors:
+    enablePodMetrics: true
+    enableNodeMetrics: true
+    enablePVMetrics: true
+    enableServiceMetrics: true
+
+  # Cost configuration
+  costConfig:
+    currency: "USD"
+    regionCode: "us-east-1"
+    priceMultiplier: 1.0

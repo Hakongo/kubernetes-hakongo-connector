@@ -5,7 +5,6 @@
 package v1alpha1
 
 import (
-	"k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
@@ -116,13 +115,6 @@ func (in *ConnectorConfigStatus) DeepCopyInto(out *ConnectorConfigStatus) {
 	if in.LastCollectionTime != nil {
 		in, out := &in.LastCollectionTime, &out.LastCollectionTime
 		*out = (*in).DeepCopy()
-	}
-	if in.Conditions != nil {
-		in, out := &in.Conditions, &out.Conditions
-		*out = make([]v1.Condition, len(*in))
-		for i := range *in {
-			(*in)[i].DeepCopyInto(&(*out)[i])
-		}
 	}
 }
 
