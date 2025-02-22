@@ -41,14 +41,18 @@ vet: ## Run go vet against code.
 test: fmt vet ## Run tests.
 	go test ./... -coverprofile cover.out
 
+.PHONY: generate
+generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	controller-gen object paths="./api/..."
+
 ##@ Build
 
 .PHONY: build
-build: fmt vet ## Build manager binary.
+build: fmt vet generate ## Build manager binary.
 	go build -o bin/manager cmd/controller/main.go
 
 .PHONY: run
-run: fmt vet ## Run a controller from your host.
+run: fmt vet generate ## Run a controller from your host.
 	go run ./cmd/controller/main.go
 
 .PHONY: docker-build

@@ -17,6 +17,8 @@ type ConnectorConfig struct {
 	Status ConnectorConfigStatus `json:"status,omitempty"`
 }
 
+// +kubebuilder:object:generate=true
+
 // ConnectorConfigSpec defines the desired state of ConnectorConfig
 type ConnectorConfigSpec struct {
 	// SaaSEndpoint is the endpoint URL for the HakonGo SaaS platform
@@ -51,6 +53,8 @@ type ConnectorConfigSpec struct {
 	CostConfig CostConfig `json:"costConfig,omitempty"`
 }
 
+// +kubebuilder:object:generate=true
+
 // CollectorConfig specifies which collectors are enabled and their configurations
 type CollectorConfig struct {
 	// EnablePodMetrics enables collection of pod metrics
@@ -69,6 +73,8 @@ type CollectorConfig struct {
 	// +kubebuilder:default=true
 	EnableServiceMetrics bool `json:"enableServiceMetrics"`
 }
+
+// +kubebuilder:object:generate=true
 
 // CostConfig specifies the configuration for cost calculations
 type CostConfig struct {
@@ -92,6 +98,8 @@ type CostConfig struct {
 	StorageCostPerGB float64 `json:"storageCostPerGB"`
 }
 
+// +kubebuilder:object:generate=true
+
 // ConnectorConfigStatus defines the observed state of ConnectorConfig
 type ConnectorConfigStatus struct {
 	// LastCollectionTime is the timestamp of the last successful metrics collection
@@ -108,6 +116,7 @@ type ConnectorConfigStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:object:generate=true
 
 // ConnectorConfigList contains a list of ConnectorConfig
 type ConnectorConfigList struct {
