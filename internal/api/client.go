@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hakongo/kubernetes-hakongo-connector/internal/collector"
+	"github.com/hakongo/kubernetes-connector/internal/collector"
 )
 
 // Client represents the SaaS API client

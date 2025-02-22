@@ -1,4 +1,4 @@
-module github.com/hakongo/kubernetes-hakongo-connector
+module github.com/hakongo/kubernetes-connector
 
 go 1.24
 

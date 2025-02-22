@@ -4,6 +4,7 @@ import (
 	"flag"
 	"os"
 
+	hakongov1alpha1 "github.com/hakongo/kubernetes-connector/api/v1alpha1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -21,6 +22,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(hakongov1alpha1.AddToScheme(scheme))
 }
 
 func main() {
