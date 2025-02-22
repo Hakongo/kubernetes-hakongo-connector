@@ -51,6 +51,7 @@ type StorageMetrics struct {
 	CapacityBytes int64  `json:"capacityBytes"`
 	Available     int64  `json:"available"`
 	PVCName       string `json:"pvcName,omitempty"`
+	DiskPressure  bool   `json:"diskPressure"`
 }
 
 // NetworkMetrics represents network usage metrics

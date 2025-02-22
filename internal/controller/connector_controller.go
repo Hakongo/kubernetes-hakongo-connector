@@ -123,7 +123,16 @@ func (r *ConnectorConfigReconciler) updateCollectors(config *hakongov1alpha1.Con
 		delete(r.collectors, "pod")
 	}
 
-	// TODO: Add other collectors (Node, PVC, Service) when implemented
+	// Update Node collector
+	if config.Spec.Collectors.EnableNodeMetrics {
+		if _, exists := r.collectors["node"]; !exists {
+			r.collectors["node"] = collector.NewNodeCollector(kubeClient, r.metricsClient, collectorConfig)
+		}
+	} else {
+		delete(r.collectors, "node")
+	}
+
+	// TODO: Add other collectors (PVC, Service) when implemented
 
 	return nil
 }
