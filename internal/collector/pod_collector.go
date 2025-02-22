@@ -67,11 +67,11 @@ func (pc *PodCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) 
 			CollectedAt: time.Now(),
 		}
 
-		metric.CPU = pc.calculateCPUMetrics(pod, &podMetric)
-		metric.Memory = pc.calculateMemoryMetrics(pod, &podMetric)
+		metric.CPU = pc.calculateCPUMetrics(&podMetric)
+		metric.Memory = pc.calculateMemoryMetrics(&podMetric)
 		metric.Storage = pc.calculateStorageMetrics(pod)
 		metric.Network = pc.calculateNetworkMetrics(&podMetric)
-		metric.Cost = pc.calculateCostMetrics(metric.CPU, metric.Memory, metric.Storage, metric.Network)
+		metric.Cost = pc.calculateCostMetrics(metric.CPU, metric.Memory)
 
 		metrics = append(metrics, metric)
 	}
@@ -99,7 +99,7 @@ func (pc *PodCollector) isNamespaceExcluded(namespace string) bool {
 	return true
 }
 
-func (pc *PodCollector) calculateCPUMetrics(pod *corev1.Pod, metrics *metricsv1beta1.PodMetrics) CPUMetrics {
+func (pc *PodCollector) calculateCPUMetrics(metrics *metricsv1beta1.PodMetrics) CPUMetrics {
 	var cpu CPUMetrics
 	for _, container := range metrics.Containers {
 		cpu.UsageNanoCores += container.Usage.Cpu().Value()
@@ -110,7 +110,7 @@ func (pc *PodCollector) calculateCPUMetrics(pod *corev1.Pod, metrics *metricsv1b
 	return cpu
 }
 
-func (pc *PodCollector) calculateMemoryMetrics(pod *corev1.Pod, metrics *metricsv1beta1.PodMetrics) MemoryMetrics {
+func (pc *PodCollector) calculateMemoryMetrics(metrics *metricsv1beta1.PodMetrics) MemoryMetrics {
 	var mem MemoryMetrics
 	for _, container := range metrics.Containers {
 		mem.UsageBytes += container.Usage.Memory().Value()
@@ -128,11 +128,11 @@ func (pc *PodCollector) calculateStorageMetrics(pod *corev1.Pod) StorageMetrics 
 	return storage
 }
 
-func (pc *PodCollector) calculateNetworkMetrics(metrics *metricsv1beta1.PodMetrics) NetworkMetrics {
+func (pc *PodCollector) calculateNetworkMetrics(_ *metricsv1beta1.PodMetrics) NetworkMetrics {
 	return NetworkMetrics{}
 }
 
-func (pc *PodCollector) calculateCostMetrics(cpu CPUMetrics, memory MemoryMetrics, storage StorageMetrics, network NetworkMetrics) CostMetrics {
+func (pc *PodCollector) calculateCostMetrics(cpu CPUMetrics, memory MemoryMetrics) CostMetrics {
 	return CostMetrics{
 		Currency:    "USD",
 		CPUCost:    cpu.UsageCorePercent * 0.04,
