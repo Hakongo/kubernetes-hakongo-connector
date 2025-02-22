@@ -132,7 +132,16 @@ func (r *ConnectorConfigReconciler) updateCollectors(config *hakongov1alpha1.Con
 		delete(r.collectors, "node")
 	}
 
-	// TODO: Add other collectors (PVC, Service) when implemented
+	// Update PV collector
+	if config.Spec.Collectors.EnablePVMetrics {
+		if _, exists := r.collectors["pv"]; !exists {
+			r.collectors["pv"] = collector.NewPVCollector(kubeClient, r.metricsClient, collectorConfig)
+		}
+	} else {
+		delete(r.collectors, "pv")
+	}
+
+	// TODO: Add Service collector when implemented
 
 	return nil
 }

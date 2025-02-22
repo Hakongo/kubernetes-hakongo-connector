@@ -65,6 +65,9 @@ type CollectorConfig struct {
 	// +kubebuilder:default=true
 	EnableNodeMetrics bool `json:"enableNodeMetrics"`
 
+	// EnablePVMetrics enables collection of persistent volume metrics
+	EnablePVMetrics bool `json:"enablePVMetrics"`
+
 	// EnablePVCMetrics enables collection of PVC metrics
 	// +kubebuilder:default=true
 	EnablePVCMetrics bool `json:"enablePVCMetrics"`
