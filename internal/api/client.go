@@ -106,18 +106,18 @@ func (c *Client) GetClusterConfig(ctx context.Context, clusterID string) (*Clust
 
 // ClusterConfig represents cluster-specific configuration from the SaaS platform
 type ClusterConfig struct {
-	CollectionInterval    time.Duration         `json:"collectionInterval"`
-	IncludeNamespaces    []string              `json:"includeNamespaces"`
-	ExcludeNamespaces    []string              `json:"excludeNamespaces"`
-	ResourceTypes        []string              `json:"resourceTypes"`
-	CostingConfiguration CostingConfiguration   `json:"costingConfiguration"`
-	AlertingRules        []AlertingRule        `json:"alertingRules"`
-	CustomMetrics        []CustomMetricConfig  `json:"customMetrics"`
+	CollectionInterval   time.Duration        `json:"collectionInterval"`
+	IncludeNamespaces    []string             `json:"includeNamespaces"`
+	ExcludeNamespaces    []string             `json:"excludeNamespaces"`
+	ResourceTypes        []string             `json:"resourceTypes"`
+	CostingConfiguration CostingConfiguration `json:"costingConfiguration"`
+	AlertingRules        []AlertingRule       `json:"alertingRules"`
+	CustomMetrics        []CustomMetricConfig `json:"customMetrics"`
 }
 
 // CostingConfiguration contains settings for cost calculation
 type CostingConfiguration struct {
-	Currency           string             `json:"currency"`
+	Currency          string             `json:"currency"`
 	CPUCostPerCore    float64            `json:"cpuCostPerCore"`
 	MemoryCostPerGB   float64            `json:"memoryCostPerGB"`
 	StorageCostPerGB  float64            `json:"storageCostPerGB"`

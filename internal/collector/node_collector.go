@@ -28,7 +28,9 @@ func NewNodeCollector(kubeClient kubernetes.Interface, metricsClient versioned.I
 
 func (nc *NodeCollector) Name() string { return "node-collector" }
 
-func (nc *NodeCollector) Description() string { return "Collects resource usage metrics for Kubernetes nodes" }
+func (nc *NodeCollector) Description() string {
+	return "Collects resource usage metrics for Kubernetes nodes"
+}
 
 func (nc *NodeCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) {
 	var metrics []ResourceMetrics
@@ -119,7 +121,7 @@ func (nc *NodeCollector) calculateCostMetrics(cpu CPUMetrics, memory MemoryMetri
 	memoryGB := float64(allocatable.Memory().Value()) / float64(1<<30)
 
 	// Base cost calculation
-	cpuCost := cpuCores * 0.04 // $0.04 per core hour
+	cpuCost := cpuCores * 0.04    // $0.04 per core hour
 	memoryCost := memoryGB * 0.01 // $0.01 per GB hour
 
 	// Adjust cost based on actual usage
@@ -139,7 +141,7 @@ func (nc *NodeCollector) calculateCostMetrics(cpu CPUMetrics, memory MemoryMetri
 	}
 
 	return CostMetrics{
-		Currency:    "USD",
+		Currency:   "USD",
 		CPUCost:    cpuCost,
 		MemoryCost: memoryCost,
 		TotalCost:  cpuCost + memoryCost,

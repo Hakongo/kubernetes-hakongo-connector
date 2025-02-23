@@ -107,7 +107,7 @@ func (p *ContextProvider) GetContext(ctx context.Context) (*ClusterContext, erro
 
 	// Build the complete cluster context
 	return &ClusterContext{
-		Name:             p.config.ClusterName,
+		Name:              p.config.ClusterName,
 		KubernetesVersion: version.GitVersion,
 		Provider: ProviderInfo{
 			Name:   p.config.ProviderName,
@@ -124,10 +124,10 @@ func (p *ContextProvider) GetContext(ctx context.Context) (*ClusterContext, erro
 func (p *ContextProvider) getNodeGroupName(labels map[string]string) string {
 	// Check common node group label patterns
 	patterns := []string{
-		"eks.amazonaws.com/nodegroup",    // EKS
-		"cloud.google.com/gke-nodepool",  // GKE
-		"agentpool",                      // AKS
-		"node-pool",                      // Generic
+		"eks.amazonaws.com/nodegroup",   // EKS
+		"cloud.google.com/gke-nodepool", // GKE
+		"agentpool",                     // AKS
+		"node-pool",                     // Generic
 	}
 
 	for _, pattern := range patterns {

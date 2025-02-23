@@ -27,49 +27,56 @@ func init() {
 }
 
 func main() {
-	var metricsAddr, probeAddr string
+	var metricsAddr string
 	var enableLeaderElection bool
-
-	flag.StringVar(&metricsAddr, "metrics-addr", ":8080", "metrics endpoint addr")
-	flag.StringVar(&probeAddr, "probe-addr", ":8081", "probe endpoint addr")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false, "leader election")
-	opts := zap.Options{Development: true}
+	var probeAddr string
+	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
+	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+		"Enable leader election for controller manager. "+
+			"Enabling this will ensure there is only one active controller manager.")
+	opts := zap.Options{
+		Development: true,
+	}
 	opts.BindFlags(flag.CommandLine)
 	flag.Parse()
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme: scheme,
-		Metrics: metricsserver.Options{
-			BindAddress: metricsAddr,
-		},
+		Scheme:                 scheme,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "hakongo-connector.k8s.io",
+		LeaderElectionID:       "hakongo-connector-leader",
+		Metrics:               metricsserver.Options{BindAddress: metricsAddr},
 	})
 	if err != nil {
-		setupLog.Error(err, "manager setup failed")
+		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
 	}
 
-	if err := mgr.AddHealthzCheck("health", healthz.Ping); err != nil {
-		setupLog.Error(err, "healthcheck setup failed")
-		os.Exit(1)
+	reconciler := &controller.ConnectorConfigReconciler{
+		Client: mgr.GetClient(),
+		Scheme: mgr.GetScheme(),
 	}
-	if err := mgr.AddReadyzCheck("ready", healthz.Ping); err != nil {
-		setupLog.Error(err, "readycheck setup failed")
+
+	if err = reconciler.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create controller", "controller", "ConnectorConfig")
 		os.Exit(1)
 	}
 
-	if err := controller.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "controller setup failed")
+	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up health check")
+		os.Exit(1)
+	}
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		setupLog.Error(err, "unable to set up ready check")
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting")
+	setupLog.Info("starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "manager failed")
+		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
 }

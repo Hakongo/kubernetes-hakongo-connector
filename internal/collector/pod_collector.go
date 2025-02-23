@@ -29,7 +29,9 @@ func NewPodCollector(kubeClient kubernetes.Interface, metricsClient versioned.In
 
 func (pc *PodCollector) Name() string { return "pod-collector" }
 
-func (pc *PodCollector) Description() string { return "Collects resource usage metrics for Kubernetes pods" }
+func (pc *PodCollector) Description() string {
+	return "Collects resource usage metrics for Kubernetes pods"
+}
 
 func (pc *PodCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) {
 	var metrics []ResourceMetrics
@@ -147,17 +149,17 @@ func (pc *PodCollector) calculateNetworkMetrics(metrics *metricsv1beta1.PodMetri
 
 func (pc *PodCollector) calculateCostMetrics(cpu CPUMetrics, memory MemoryMetrics) CostMetrics {
 	const (
-		cpuCostPerCore    = 0.04 // $0.04 per core hour
-		memoryCostPerGB   = 0.01 // $0.01 per GB hour
-		storageCostPerGB  = 0.002 // $0.002 per GB hour
-		networkCostPerGB  = 0.05 // $0.05 per GB
+		cpuCostPerCore   = 0.04  // $0.04 per core hour
+		memoryCostPerGB  = 0.01  // $0.01 per GB hour
+		storageCostPerGB = 0.002 // $0.002 per GB hour
+		networkCostPerGB = 0.05  // $0.05 per GB
 	)
 
 	cpuCost := cpu.UsageCorePercent * cpuCostPerCore
 	memoryCost := float64(memory.UsageBytes) / float64(1<<30) * memoryCostPerGB
 
 	return CostMetrics{
-		Currency:    "USD",
+		Currency:   "USD",
 		CPUCost:    cpuCost,
 		MemoryCost: memoryCost,
 		TotalCost:  cpuCost + memoryCost,

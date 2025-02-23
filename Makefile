@@ -47,12 +47,16 @@ generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject
 
 ##@ Build
 
+.PHONY: manifests
+manifests: ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
+	controller-gen rbac:roleName=manager-role crd webhook paths="./api/..." output:crd:artifacts:config=config/crd/bases
+
 .PHONY: build
-build: fmt vet generate ## Build manager binary.
+build: fmt vet generate manifests ## Build manager binary.
 	go build -o bin/manager cmd/controller/main.go
 
 .PHONY: run
-run: fmt vet generate ## Run a controller from your host.
+run: fmt vet generate manifests ## Run a controller from your host.
 	go run ./cmd/controller/main.go
 
 .PHONY: docker-build

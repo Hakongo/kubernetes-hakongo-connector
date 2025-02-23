@@ -27,7 +27,9 @@ func NewPVCollector(kubeClient kubernetes.Interface, metricsClient versioned.Int
 
 func (pc *PVCollector) Name() string { return "pv-collector" }
 
-func (pc *PVCollector) Description() string { return "Collects metrics for Kubernetes PersistentVolumes" }
+func (pc *PVCollector) Description() string {
+	return "Collects metrics for Kubernetes PersistentVolumes"
+}
 
 func (pc *PVCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) {
 	var metrics []ResourceMetrics

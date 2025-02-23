@@ -3,7 +3,6 @@ package integration
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,11 +28,17 @@ func TestConnectorConfig(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: hakongov1alpha1.ConnectorConfigSpec{
-			APIKey: "test-key",
+			HakonGo: hakongov1alpha1.HakonGoConfig{
+				BaseURL: "https://api.hakongo.io",
+				APIKey: hakongov1alpha1.SecretKeyRef{
+					Name: "hakongo-secret",
+					Key:  "api-key",
+				},
+			},
 			ClusterContext: hakongov1alpha1.ClusterContextConfig{
-				Name:     "test-cluster",
-				Provider: "aws",
-				Region:   "us-west-2",
+				Name:   "test-cluster",
+				Type:   "aws",
+				Region: "us-west-2",
 			},
 		},
 	}
