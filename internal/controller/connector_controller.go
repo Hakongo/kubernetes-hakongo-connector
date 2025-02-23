@@ -5,19 +5,18 @@ import (
 	"fmt"
 	"time"
 
-	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
-	"k8s.io/metrics/pkg/client/clientset/versioned"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
 	hakongov1alpha1 "github.com/hakongo/kubernetes-connector/api/v1alpha1"
 	"github.com/hakongo/kubernetes-connector/internal/collector"
 	"github.com/hakongo/kubernetes-connector/internal/hakongo"
+	"github.com/hakongo/kubernetes-connector/internal/cluster"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	versioned "k8s.io/metrics/pkg/client/clientset/versioned"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const (
@@ -39,11 +38,12 @@ const (
 type ConnectorConfigReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	Config        *rest.Config
-	collectors    map[string]collector.Collector
+	Config       *rest.Config
+	kubeClient    kubernetes.Interface
 	metricsClient versioned.Interface
 	hakongoClient *hakongo.Client
-	kubeClient    kubernetes.Interface
+	collectors    map[string]collector.Collector
+	contextProvider *cluster.ContextProvider
 }
 
 // +kubebuilder:rbac:groups=hakongo.io,resources=connectorconfigs,verbs=get;list;watch;create;update;patch;delete
@@ -57,62 +57,78 @@ func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	var config hakongov1alpha1.ConnectorConfig
 	if err := r.Get(ctx, req.NamespacedName, &config); err != nil {
-		if errors.IsNotFound(err) {
-			return ctrl.Result{}, nil
+		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	// Initialize HakonGo client if needed
+	if r.hakongoClient == nil {
+		if err := r.initHakonGoClient(ctx, &config); err != nil {
+			log.Error(err, "failed to initialize HakonGo client")
+			r.updateStatus(ctx, &config, err.Error())
+			return ctrl.Result{}, err
 		}
-		return ctrl.Result{}, err
 	}
 
-	if err := r.ensureClients(); err != nil {
-		log.Error(err, "failed to initialize clients")
-		return ctrl.Result{}, err
+	// Initialize cluster context provider if needed
+	if r.contextProvider == nil {
+		r.contextProvider = cluster.NewContextProvider(r.kubeClient, &cluster.Config{
+			ClusterName:  config.Spec.ClusterContext.Name,
+			ProviderName: config.Spec.ClusterContext.ProviderName,
+			Region:      config.Spec.ClusterContext.Region,
+			Zone:        config.Spec.ClusterContext.Zone,
+			Labels:      config.Spec.ClusterContext.Labels,
+			Metadata:    config.Spec.ClusterContext.Metadata,
+		})
 	}
 
-	if err := r.initHakonGoClient(ctx, &config); err != nil {
-		log.Error(err, "failed to initialize HakonGo client")
+	// Get current cluster context
+	clusterCtx, err := r.contextProvider.GetContext(ctx)
+	if err != nil {
+		log.Error(err, "failed to get cluster context")
 		r.updateStatus(ctx, &config, err.Error())
 		return ctrl.Result{}, err
 	}
 
+	// Update collectors based on configuration
 	if err := r.updateCollectors(&config); err != nil {
 		log.Error(err, "failed to update collectors")
 		r.updateStatus(ctx, &config, err.Error())
 		return ctrl.Result{}, err
 	}
 
+	// Collect metrics from all enabled collectors
 	var allMetrics []collector.ResourceMetrics
 	for _, c := range r.collectors {
 		metrics, err := c.Collect(ctx)
 		if err != nil {
 			log.Error(err, "failed to collect metrics", "collector", c.Name())
-			continue
+			r.updateStatus(ctx, &config, err.Error())
+			return ctrl.Result{}, err
 		}
 		allMetrics = append(allMetrics, metrics...)
 	}
 
-	if err := r.hakongoClient.SendMetrics(ctx, hakongo.MetricsData{
-		ClusterID:   config.Spec.HakonGo.ClusterID,
-		CollectedAt: time.Now(),
-		Resources:   allMetrics,
+	// Send metrics to HakonGo with cluster context
+	if err := r.hakongoClient.SendMetrics(ctx, &hakongo.MetricsData{
+		ClusterID:     config.Spec.HakonGo.ClusterID,
+		Context:       clusterCtx,
+		CollectedAt:   time.Now(),
+		Resources:     allMetrics,
 	}); err != nil {
-		log.Error(err, "failed to send metrics to HakonGo")
+		log.Error(err, "failed to send metrics")
 		r.updateStatus(ctx, &config, err.Error())
 		return ctrl.Result{}, err
 	}
 
-	r.updateStatus(ctx, &config, "")
-	config.Status.MetricsCollected = int32(len(allMetrics))
+	// Update status with success
+	config.Status.MetricsCollected = int64(len(allMetrics))
+	config.Status.LastError = ""
 	if err := r.Status().Update(ctx, &config); err != nil {
 		log.Error(err, "failed to update status")
 		return ctrl.Result{}, err
 	}
 
-	interval, err := time.ParseDuration(config.Spec.CollectionInterval)
-	if err != nil {
-		interval = 5 * time.Minute
-	}
-
-	return ctrl.Result{RequeueAfter: interval}, nil
+	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
 
 func (r *ConnectorConfigReconciler) ensureClients() error {
@@ -136,12 +152,12 @@ func (r *ConnectorConfigReconciler) ensureClients() error {
 }
 
 func (r *ConnectorConfigReconciler) initHakonGoClient(ctx context.Context, config *hakongov1alpha1.ConnectorConfig) error {
-	secret, err := r.kubeClient.CoreV1().Secrets(config.Spec.HakonGo.APIKeySecret.Namespace).Get(
-		ctx,
-		config.Spec.HakonGo.APIKeySecret.Name,
-		metav1.GetOptions{},
-	)
-	if err != nil {
+	// Get API key from secret
+	var secret corev1.Secret
+	if err := r.Get(ctx, client.ObjectKey{
+		Namespace: config.Namespace,
+		Name:      config.Spec.HakonGo.APIKeySecret.Name,
+	}, &secret); err != nil {
 		return fmt.Errorf("failed to get API key secret: %w", err)
 	}
 
@@ -150,6 +166,7 @@ func (r *ConnectorConfigReconciler) initHakonGoClient(ctx context.Context, confi
 		return fmt.Errorf("API key not found in secret")
 	}
 
+	// Create HakonGo client
 	r.hakongoClient = hakongo.NewClient(hakongo.ClientConfig{
 		BaseURL: config.Spec.HakonGo.BaseURL,
 		APIKey:  apiKey,
@@ -163,60 +180,17 @@ func (r *ConnectorConfigReconciler) updateCollectors(config *hakongov1alpha1.Con
 		r.collectors = make(map[string]collector.Collector)
 	}
 
-	collectorConfig := collector.CollectorConfig{
-		IncludeNamespaces: config.Spec.IncludeNamespaces,
-		ExcludeNamespaces: config.Spec.ExcludeNamespaces,
-	}
-
-	// Update Pod collector
-	if config.Spec.Collectors.EnablePodMetrics {
-		if _, exists := r.collectors["pod"]; !exists {
-			r.collectors["pod"] = collector.NewPodCollector(r.kubeClient, r.metricsClient, collectorConfig)
-		}
-	} else {
-		delete(r.collectors, "pod")
-	}
-
-	// Update Node collector
-	if config.Spec.Collectors.EnableNodeMetrics {
-		if _, exists := r.collectors["node"]; !exists {
-			r.collectors["node"] = collector.NewNodeCollector(r.kubeClient, r.metricsClient, collectorConfig)
-		}
-	} else {
-		delete(r.collectors, "node")
-	}
-
-	// Update PV collector
-	if config.Spec.Collectors.EnablePVMetrics {
-		if _, exists := r.collectors["pv"]; !exists {
-			r.collectors["pv"] = collector.NewPVCollector(r.kubeClient, r.metricsClient, collectorConfig)
-		}
-	} else {
-		delete(r.collectors, "pv")
-	}
-
-	// Update Service collector
-	if config.Spec.Collectors.EnableServiceMetrics {
-		if _, exists := r.collectors["service"]; !exists {
-			r.collectors["service"] = collector.NewServiceCollector(r.kubeClient, r.metricsClient, collectorConfig)
-		}
-	} else {
-		delete(r.collectors, "service")
-	}
+	// Reset hakongoClient to force re-initialization
+	r.hakongoClient = nil
 
 	return nil
 }
 
 func (r *ConnectorConfigReconciler) updateStatus(ctx context.Context, config *hakongov1alpha1.ConnectorConfig, lastError string) {
-	now := metav1.Now()
-	config.Status.LastCollectionTime = &now
 	config.Status.LastError = lastError
-}
-
-func (r *ConnectorConfigReconciler) stopCollectors() {
-	r.collectors = nil
-	r.metricsClient = nil
-	r.hakongoClient = nil
+	if err := r.Status().Update(ctx, config); err != nil {
+		log.FromContext(ctx).Error(err, "failed to update status")
+	}
 }
 
 func (r *ConnectorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -226,7 +200,6 @@ func (r *ConnectorConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// SetupWithManager sets up the controller with the Manager.
 func SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&hakongov1alpha1.ConnectorConfig{}).

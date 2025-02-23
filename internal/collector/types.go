@@ -8,22 +8,28 @@ import (
 // ResourceMetrics represents collected metrics for a Kubernetes resource
 type ResourceMetrics struct {
 	// Resource metadata
-	Name        string            `json:"name"`
-	Namespace   string            `json:"namespace"`
-	Kind        string            `json:"kind"`
-	Labels      map[string]string `json:"labels"`
+	Name        string                 `json:"name"`
+	Namespace   string                 `json:"namespace,omitempty"`
+	Kind        string                 `json:"kind"`
+	Labels      map[string]string      `json:"labels"`
 
 	// Collection metadata
-	CollectedAt time.Time `json:"collectedAt"`
+	CollectedAt time.Time             `json:"collected_at"`
 
 	// Resource usage metrics
-	CPU         CPUMetrics        `json:"cpu"`
-	Memory      MemoryMetrics     `json:"memory"`
-	Storage     StorageMetrics    `json:"storage"`
-	Network     NetworkMetrics    `json:"network"`
+	CPU         CPUMetrics            `json:"cpu,omitempty"`
+	Memory      MemoryMetrics         `json:"memory,omitempty"`
+	Storage     StorageMetrics        `json:"storage,omitempty"`
+	Network     NetworkMetrics        `json:"network,omitempty"`
 
 	// Cost related information
-	Cost        CostMetrics       `json:"cost"`
+	Cost        CostMetrics           `json:"cost,omitempty"`
+
+	// Container metrics
+	Containers  []ContainerMetrics    `json:"containers,omitempty"`
+
+	// Status information
+	Status      map[string]interface{} `json:"status,omitempty"`
 }
 
 // CPUMetrics represents CPU usage metrics
@@ -76,6 +82,16 @@ type CostMetrics struct {
 	Currency    string  `json:"currency"`
 }
 
+// ContainerMetrics represents container metrics
+type ContainerMetrics struct {
+	Name      string        `json:"name"`
+	CPU       CPUMetrics    `json:"cpu"`
+	Memory    MemoryMetrics `json:"memory"`
+	Ready     bool          `json:"ready"`
+	Restarts  int32        `json:"restarts"`
+	State     string       `json:"state"`
+}
+
 // Collector interface defines methods that must be implemented by resource collectors
 type Collector interface {
 	// Collect gathers metrics for the specified resource
@@ -94,10 +110,10 @@ type CollectorConfig struct {
 	CollectionInterval         time.Duration
 
 	// Namespaces to include in collection (empty means all)
-	IncludeNamespaces         []string
+	IncludeNamespaces         []string `json:"include_namespaces"`
 
 	// Namespaces to exclude from collection
-	ExcludeNamespaces         []string
+	ExcludeNamespaces         []string `json:"exclude_namespaces"`
 
 	// Labels to include in collection (empty means all)
 	IncludeLabels             map[string]string

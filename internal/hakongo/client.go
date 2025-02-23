@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/hakongo/kubernetes-connector/internal/cluster"
+	"github.com/hakongo/kubernetes-connector/internal/collector"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -38,35 +41,34 @@ func NewClient(config ClientConfig) *Client {
 }
 
 type MetricsData struct {
-	ClusterID   string      `json:"clusterId"`
-	CollectedAt time.Time   `json:"collectedAt"`
-	Resources   interface{} `json:"resources"`
+	ClusterID   string                     `json:"cluster_id"`
+	Context     *cluster.ClusterContext    `json:"context"`
+	CollectedAt time.Time                  `json:"collected_at"`
+	Resources   []collector.ResourceMetrics `json:"resources"`
 }
 
-func (c *Client) SendMetrics(ctx context.Context, data MetricsData) error {
-	url := fmt.Sprintf("%s/api/v1/metrics", c.baseURL)
-	
-	body, err := json.Marshal(data)
+func (c *Client) SendMetrics(ctx context.Context, data *MetricsData) error {
+	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("failed to marshal metrics data: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v1/metrics", c.baseURL), bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", c.apiKey)
+	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.apiKey))
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send metrics: %w", err)
+		return fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("failed to send metrics: status code %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 	}
 
 	return nil
