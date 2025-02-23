@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hakongo-connector
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hakongo-connector
+  template:
+    metadata:
+      labels:
+        app: hakongo-connector
+    spec:
+      serviceAccountName: hakongo-connector
+      containers:
+      - name: manager
+        image: hakongo-connector:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: HAKONGO_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: hakongo-secret
+              key: api-key
+        resources:
+          limits:
+            cpu: 100m
+            memory: 128Mi
+          requests:
+            cpu: 100m
+            memory: 64Mi
