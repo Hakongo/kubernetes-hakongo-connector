@@ -30,13 +30,12 @@ type ConnectorConfigSpec struct {
 	// +kubebuilder:validation:Required
 	APIKey string `json:"apiKey"`
 
-	// Collectors specifies which resource collectors to enable
-	// +optional
-	Collectors CollectorConfig `json:"collectors,omitempty"`
-
 	// HakonGo configuration
 	// +kubebuilder:validation:Required
 	HakonGo HakonGoConfig `json:"hakongo"`
+
+	// Collectors specifies which collectors are enabled and their configurations
+	Collectors []CollectorSpec `json:"collectors"`
 
 	// IncludeNamespaces is a list of namespaces to include in metrics collection
 	// If empty, all namespaces will be included except those in ExcludeNamespaces
@@ -56,61 +55,72 @@ type ConnectorConfigSpec struct {
 	// CostConfig specifies the configuration for cost calculations
 	// +optional
 	CostConfig CostConfig `json:"costConfig,omitempty"`
+
+	// Cluster context configuration
+	ClusterContext ClusterContextConfig `json:"clusterContext"`
 }
 
-// HakonGoConfig defines the configuration for connecting to HakonGo
-type HakonGoConfig struct {
-	// BaseURL is the base URL of the HakonGo API
-	// +kubebuilder:validation:Required
-	// +kubebuilder:validation:Pattern=^https?://.*
-	BaseURL string `json:"baseUrl"`
-
-	// ClusterID is the unique identifier for this cluster in HakonGo
-	// +kubebuilder:validation:Required
-	ClusterID string `json:"clusterId"`
-
-	// APIKeySecret references the secret containing the API key
-	// +kubebuilder:validation:Required
-	APIKeySecret SecretKeyRef `json:"apiKeySecret"`
-}
-
-// SecretKeyRef references a key in a Secret
-type SecretKeyRef struct {
-	// Name is the name of the secret
+// ClusterContextConfig defines how to identify and label the cluster
+type ClusterContextConfig struct {
+	// Name of the cluster
 	// +kubebuilder:validation:Required
 	Name string `json:"name"`
 
-	// Namespace is the namespace of the secret
+	// Cloud provider name (e.g., aws, gcp, azure)
 	// +kubebuilder:validation:Required
-	Namespace string `json:"namespace"`
+	ProviderName string `json:"providerName"`
 
-	// Key is the key in the secret
+	// Region where the cluster is running
 	// +kubebuilder:validation:Required
-	Key string `json:"key"`
+	Region string `json:"region"`
+
+	// Zone where the cluster is running (optional)
+	// +optional
+	Zone string `json:"zone,omitempty"`
+
+	// Additional labels to apply to all metrics
+	// +optional
+	Labels map[string]string `json:"labels,omitempty"`
+
+	// Additional metadata to include with metrics
+	// +optional
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// +kubebuilder:object:generate=true
+// CollectorSpec defines configuration for a specific collector
+type CollectorSpec struct {
+	// Name of the collector
+	Name string `json:"name"`
 
-// CollectorConfig specifies which collectors are enabled and their configurations
-type CollectorConfig struct {
-	// EnablePodMetrics enables collection of pod metrics
-	// +kubebuilder:default=true
-	EnablePodMetrics bool `json:"enablePodMetrics"`
+	// Whether this collector is enabled
+	Enabled bool `json:"enabled"`
 
-	// EnableNodeMetrics enables collection of node metrics
-	// +kubebuilder:default=true
-	EnableNodeMetrics bool `json:"enableNodeMetrics"`
+	// Namespaces to include in collection (empty means all)
+	IncludeNamespaces []string `json:"includeNamespaces,omitempty"`
 
-	// EnablePVMetrics enables collection of persistent volume metrics
-	EnablePVMetrics bool `json:"enablePVMetrics"`
+	// Namespaces to exclude from collection
+	ExcludeNamespaces []string `json:"excludeNamespaces,omitempty"`
+}
 
-	// EnablePVCMetrics enables collection of PVC metrics
-	// +kubebuilder:default=true
-	EnablePVCMetrics bool `json:"enablePVCMetrics"`
+// HakonGoConfig defines configuration for connecting to HakonGo API
+type HakonGoConfig struct {
+	// BaseURL is the base URL for the HakonGo API
+	BaseURL string `json:"baseUrl"`
 
-	// EnableServiceMetrics enables collection of service metrics
-	// +kubebuilder:default=true
-	EnableServiceMetrics bool `json:"enableServiceMetrics"`
+	// ClusterID is the unique identifier for this cluster
+	ClusterID string `json:"clusterId"`
+
+	// APIKeySecret references a secret containing the API key
+	APIKeySecret SecretKeyRef `json:"apiKeySecret"`
+}
+
+// SecretKeyRef references a key in a secret
+type SecretKeyRef struct {
+	// Name of the secret
+	Name string `json:"name"`
+
+	// Key in the secret
+	Key string `json:"key"`
 }
 
 // +kubebuilder:object:generate=true
@@ -141,14 +151,13 @@ type CostConfig struct {
 
 // ConnectorConfigStatus defines the observed state of ConnectorConfig
 type ConnectorConfigStatus struct {
-	// LastCollectionTime is the timestamp of the last successful metrics collection
-	// +optional
+	// LastCollectionTime is the last time metrics were collected
 	LastCollectionTime *metav1.Time `json:"lastCollectionTime,omitempty"`
-	// MetricsCollected is the number of metrics collected
-	// +optional
-	MetricsCollected int32 `json:"metricsCollected,omitempty"`
-	// LastError is the error message of the last collection attempt
-	// +optional
+
+	// MetricsCollected is the number of metrics collected in the last run
+	MetricsCollected int64 `json:"metricsCollected,omitempty"`
+
+	// LastError is the last error encountered during collection
 	LastError string `json:"lastError,omitempty"`
 }
 

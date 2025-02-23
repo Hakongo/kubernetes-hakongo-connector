@@ -1,34 +1,48 @@
-apiVersion: hakongo.io/v1alpha1
+apiVersion: hakongo.hakongo.com/v1alpha1
 kind: ConnectorConfig
 metadata:
-  name: demo-connector
+  name: connectorconfig-sample
 spec:
-  # HakonGo configuration
   hakongo:
-    baseUrl: "https://api.hakongo.io"
-    clusterId: "demo-cluster"
+    baseUrl: "http://localhost:3000"
+    clusterId: "prod-us-west-2"
     apiKeySecret:
       name: hakongo-api-key
-      namespace: default
       key: api-key
 
-  # Collection configuration
-  collectionInterval: "5m"
-  includeNamespaces:
-    - default
-    - kube-system
-  excludeNamespaces:
-    - kube-public
+  clusterContext:
+    name: "production-cluster"
+    providerName: "aws"
+    region: "us-west-2"
+    zone: "us-west-2a"
+    labels:
+      environment: "production"
+      team: "platform"
+      cost-center: "12345"
+    metadata:
+      vpc_id: "vpc-1234567890abcdef0"
+      subnet_ids: ["subnet-abc123", "subnet-def456"]
 
-  # Enable collectors
   collectors:
-    enablePodMetrics: true
-    enableNodeMetrics: true
-    enablePVMetrics: true
-    enableServiceMetrics: true
-
-  # Cost configuration
-  costConfig:
-    currency: "USD"
-    regionCode: "us-east-1"
-    priceMultiplier: 1.0
+    - name: "pod"
+      enabled: true
+    - name: "node"
+      enabled: true
+    - name: "pv"
+      enabled: true
+    - name: "service"
+      enabled: true
+    - name: "namespace"
+      enabled: true
+    - name: "workload"
+      enabled: true
+    - name: "ingress"
+      enabled: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hakongo-api-key
+type: Opaque
+data:
+  api-key: dGVzdC1hcGkta2V5  # This is "test-api-key" in base64
