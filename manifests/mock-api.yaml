@@ -16,9 +16,12 @@ spec:
     spec:
       containers:
       - name: mock-api
-        image: nginx:alpine
+        image: openresty/openresty:alpine
         ports:
         - containerPort: 80
+          name: http
+        - containerPort: 8080
+          name: metrics-ui
         resources:
           limits:
             cpu: "200m"
@@ -31,12 +34,54 @@ spec:
           mountPath: /etc/nginx/conf.d
         - name: nginx-logs
           mountPath: /var/log/nginx
+        - name: metrics-storage
+          mountPath: /var/lib/metrics
+        - name: metrics-ui
+          mountPath: /usr/share/nginx/html
+      - name: metrics-processor
+        image: alpine:latest
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          apk add --no-cache jq curl
+          mkdir -p /var/lib/metrics/processed
+          while true; do
+            if [ -f /var/lib/metrics/latest.json ]; then
+              cat /var/lib/metrics/latest.json | jq '.' > /var/lib/metrics/processed/formatted.json
+              cat /var/lib/metrics/latest.json | jq 'length' > /var/lib/metrics/processed/count.txt
+              cat /var/lib/metrics/latest.json | jq 'map(.resourceType) | group_by(.) | map({key: .[0], count: length})' > /var/lib/metrics/processed/types.json
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType == "Pod")) | length' > /var/lib/metrics/processed/pods.txt
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType == "Node")) | length' > /var/lib/metrics/processed/nodes.txt
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType == "Service")) | length' > /var/lib/metrics/processed/services.txt
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType == "Ingress")) | length' > /var/lib/metrics/processed/ingresses.txt
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType == "Namespace")) | length' > /var/lib/metrics/processed/namespaces.txt
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType == "PersistentVolume")) | length' > /var/lib/metrics/processed/pvs.txt
+              cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType | startswith("Workload"))) | length' > /var/lib/metrics/processed/workloads.txt
+              echo "$(date): Processed new metrics batch" >> /var/lib/metrics/processed/log.txt
+            fi
+            sleep 5
+          done
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "128Mi"
+          requests:
+            cpu: "50m"
+            memory: "64Mi"
+        volumeMounts:
+        - name: metrics-storage
+          mountPath: /var/lib/metrics
       volumes:
       - name: nginx-config
         configMap:
           name: mock-api-config
       - name: nginx-logs
         emptyDir: {}
+      - name: metrics-storage
+        emptyDir: {}
+      - name: metrics-ui
+        configMap:
+          name: metrics-ui-config
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -46,6 +91,8 @@ data:
   default.conf: |
     log_format detailed_logs '$remote_addr - $remote_user [$time_local] "$request" '
                           '$status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"';
+    log_format json_logs escape=json '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for" $request_body';
 
     server {
       listen 80;
@@ -56,12 +103,33 @@ data:
       client_max_body_size 10M;
       
       location /v1/metrics {
-        # Log the request details
-        access_log /var/log/nginx/metrics.log detailed_logs;
+        # Log the request details with body
+        access_log /var/log/nginx/metrics.log json_logs;
+        
+        # Store the latest metrics for processing
+        client_body_in_file_only on;
+        client_body_temp_path /var/lib/metrics/;
+        set $metricsfile "/var/lib/metrics/latest.json";
+        rewrite_by_lua_block {
+          ngx.req.read_body()
+          local body = ngx.req.get_body_data()
+          if body then
+            local file = io.open(ngx.var.metricsfile, "w")
+            if file then
+              file:write(body)
+              file:close()
+            end
+          end
+        }
         
         # Return success response
         add_header Content-Type application/json;
-        return 200 '{"status":"ok","message":"Metrics received successfully","timestamp":"$time_local"}';
+        return 200 '{"status":"ok","message":"Metrics received successfully","timestamp":"$time_local","metrics_count":"$content_length"}';
+      }
+      
+      location /v1/clusters {
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","message":"Cluster config retrieved","data":{"collectionInterval":60,"includeNamespaces":[],"excludeNamespaces":["kube-system"],"resourceTypes":["Pod","Node","Service","Ingress","Namespace","PersistentVolume","Workload"],"costingConfiguration":{"currency":"USD","cpuCostPerCore":30,"memoryCostPerGB":5,"storageCostPerGB":0.1,"networkCostPerGB":0.01,"customCostFactors":{}},"alertingRules":[],"customMetrics":[]}}'; 
       }
       
       location / {
@@ -69,6 +137,233 @@ data:
         return 200 '{"status":"ok","message":"Mock HakonGo API"}';
       }
     }
+    
+    server {
+      listen 8080;
+      root /usr/share/nginx/html;
+      index index.html;
+      
+      location /api/metrics {
+        alias /var/lib/metrics/processed/;
+        autoindex on;
+        default_type application/json;
+      }
+      
+      location / {
+        try_files $uri $uri/ /index.html;
+      }
+    }
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-ui-config
+data:
+  index.html: |
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>HakonGo Metrics Dashboard</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background-color: #f5f5f5;
+        }
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+        }
+        .header {
+          background-color: #2c3e50;
+          color: white;
+          padding: 20px;
+          border-radius: 5px;
+          margin-bottom: 20px;
+        }
+        .card {
+          background-color: white;
+          border-radius: 5px;
+          box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+          padding: 20px;
+          margin-bottom: 20px;
+        }
+        .metrics-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+          gap: 15px;
+        }
+        .metric-box {
+          background-color: #ecf0f1;
+          border-radius: 5px;
+          padding: 15px;
+          text-align: center;
+        }
+        .metric-value {
+          font-size: 24px;
+          font-weight: bold;
+          margin: 10px 0;
+          color: #3498db;
+        }
+        .metric-label {
+          font-size: 14px;
+          color: #7f8c8d;
+        }
+        pre {
+          background-color: #f8f9fa;
+          border-radius: 5px;
+          padding: 15px;
+          overflow: auto;
+          max-height: 500px;
+        }
+        .refresh-btn {
+          background-color: #3498db;
+          color: white;
+          border: none;
+          padding: 10px 15px;
+          border-radius: 5px;
+          cursor: pointer;
+        }
+        .refresh-btn:hover {
+          background-color: #2980b9;
+        }
+        .timestamp {
+          font-size: 12px;
+          color: #95a5a6;
+          text-align: right;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>HakonGo Metrics Dashboard</h1>
+          <p>Mock API Server for Kubernetes Connector Testing</p>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>Metrics Summary</h2>
+            <button class="refresh-btn" onclick="refreshData()">Refresh Data</button>
+            <div class="timestamp" id="timestamp"></div>
+          </div>
+          <div class="metrics-grid" id="metrics-summary">
+            <!-- Metrics will be populated here -->
+          </div>
+        </div>
+        
+        <div class="card">
+          <h2>Resource Type Distribution</h2>
+          <div id="type-distribution">
+            <!-- Type distribution will be populated here -->
+          </div>
+        </div>
+        
+        <div class="card">
+          <h2>Latest Metrics (Raw JSON)</h2>
+          <pre id="raw-metrics">Loading...</pre>
+        </div>
+      </div>
+      
+      <script>
+        // Function to fetch and update metrics data
+        async function refreshData() {
+          try {
+            // Update timestamp
+            document.getElementById('timestamp').innerText = `Last updated: ${new Date().toLocaleString()}`;
+            
+            // Fetch metrics count
+            const countResponse = await fetch('/api/metrics/count.txt');
+            const count = await countResponse.text();
+            
+            // Fetch resource type counts
+            const podsResponse = await fetch('/api/metrics/pods.txt');
+            const nodesResponse = await fetch('/api/metrics/nodes.txt');
+            const servicesResponse = await fetch('/api/metrics/services.txt');
+            const ingressesResponse = await fetch('/api/metrics/ingresses.txt');
+            const namespacesResponse = await fetch('/api/metrics/namespaces.txt');
+            const pvsResponse = await fetch('/api/metrics/pvs.txt');
+            const workloadsResponse = await fetch('/api/metrics/workloads.txt');
+            
+            const pods = await podsResponse.text();
+            const nodes = await nodesResponse.text();
+            const services = await servicesResponse.text();
+            const ingresses = await ingressesResponse.text();
+            const namespaces = await namespacesResponse.text();
+            const pvs = await pvsResponse.text();
+            const workloads = await workloadsResponse.text();
+            
+            // Update metrics summary
+            const metricsHtml = `
+              <div class="metric-box">
+                <div class="metric-label">Total Metrics</div>
+                <div class="metric-value">${count || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">Pods</div>
+                <div class="metric-value">${pods || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">Nodes</div>
+                <div class="metric-value">${nodes || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">Services</div>
+                <div class="metric-value">${services || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">Ingresses</div>
+                <div class="metric-value">${ingresses || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">Namespaces</div>
+                <div class="metric-value">${namespaces || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">PersistentVolumes</div>
+                <div class="metric-value">${pvs || 0}</div>
+              </div>
+              <div class="metric-box">
+                <div class="metric-label">Workloads</div>
+                <div class="metric-value">${workloads || 0}</div>
+              </div>
+            `;
+            document.getElementById('metrics-summary').innerHTML = metricsHtml;
+            
+            // Fetch and update type distribution
+            const typesResponse = await fetch('/api/metrics/types.json');
+            const types = await typesResponse.json();
+            
+            let typesHtml = '<ul>';
+            types.forEach(type => {
+              typesHtml += `<li><strong>${type.key}:</strong> ${type.count} metrics</li>`;
+            });
+            typesHtml += '</ul>';
+            document.getElementById('type-distribution').innerHTML = typesHtml;
+            
+            // Fetch and update raw metrics
+            const rawResponse = await fetch('/api/metrics/formatted.json');
+            const rawText = await rawResponse.text();
+            document.getElementById('raw-metrics').textContent = rawText;
+            
+          } catch (error) {
+            console.error('Error fetching metrics data:', error);
+            document.getElementById('raw-metrics').textContent = 'Error loading metrics data. Please try again later.';
+          }
+        }
+        
+        // Initial data load
+        document.addEventListener('DOMContentLoaded', () => {
+          refreshData();
+          // Auto-refresh every 30 seconds
+          setInterval(refreshData, 30000);
+        });
+      </script>
+    </body>
+    </html>
 ---
 apiVersion: v1
 kind: Service
@@ -78,6 +373,10 @@ spec:
   selector:
     app: mock-hakongo-api
   ports:
-  - port: 80
-    targetPort: 80
+  - name: api
+    port: 80
+    targetPort: http
+  - name: dashboard
+    port: 8080
+    targetPort: metrics-ui
   type: ClusterIP
