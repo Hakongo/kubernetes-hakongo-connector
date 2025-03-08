@@ -135,3 +135,8 @@ type NodeMetrics struct {
 	CPUUsage    float64 // CPU usage in cores
 	MemoryUsage float64 // Memory usage in bytes
 }
+
+// GetBaseURL returns the base URL of the Prometheus server
+func (c *PrometheusClient) GetBaseURL() string {
+	return c.baseURL
+}

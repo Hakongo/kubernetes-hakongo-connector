@@ -93,13 +93,30 @@ func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config *hakongov1alpha1.ConnectorConfig, clusterCtx *cluster.ClusterContext) error {
-	// Initialize Prometheus client if needed
-	if r.prometheusClient == nil && config.Spec.Prometheus != nil {
-		var err error
-		r.prometheusClient, err = metrics.NewPrometheusClient(config.Spec.Prometheus.URL)
-		if err != nil {
-			return fmt.Errorf("failed to create Prometheus client: %w", err)
+	// Determine which metrics sources to use based on user configuration
+	usePrometheus := false
+	useMetricsServer := false
+
+	// Initialize Prometheus client if configured
+	if config.Spec.Prometheus != nil {
+		usePrometheus = true
+		if r.prometheusClient == nil {
+			var err error
+			r.prometheusClient, err = metrics.NewPrometheusClient(config.Spec.Prometheus.URL)
+			if err != nil {
+				return fmt.Errorf("failed to create Prometheus client: %w", err)
+			}
 		}
+	}
+
+	// Check if Metrics Server is enabled
+	if config.Spec.MetricsServer != nil && config.Spec.MetricsServer.Enabled {
+		useMetricsServer = true
+	}
+
+	// If neither is configured, default to Metrics Server
+	if !usePrometheus && !useMetricsServer {
+		useMetricsServer = true
 	}
 
 	// Create base collector config
@@ -138,8 +155,8 @@ func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config 
 
 	// Create collectors
 	r.collectors = []collector.Collector{
-		collector.NewPodCollector(r.kubeClient, r.prometheusClient, collectorConfig),
-		collector.NewNodeCollector(r.kubeClient, r.metricsClient, collectorConfig),
+		collector.NewPodCollector(r.kubeClient, r.prometheusClient, collectorConfig, usePrometheus),
+		collector.NewNodeCollector(r.kubeClient, r.metricsClient, r.prometheusClient, collectorConfig, usePrometheus, useMetricsServer),
 		collector.NewPVCollector(r.kubeClient, r.metricsClient, collectorConfig),
 		collector.NewServiceCollector(r.kubeClient, r.metricsClient, collectorConfig),
 		collector.NewNamespaceCollector(r.kubeClient, collectorConfig),
@@ -151,21 +168,129 @@ func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config 
 }
 
 func (r *ConnectorConfigReconciler) collectMetrics(ctx context.Context, clusterCtx *cluster.ClusterContext) error {
+	logger := log.FromContext(ctx)
 	var allMetrics []collector.ResourceMetrics
 
-	// Collect metrics from all collectors
-	for _, c := range r.collectors {
-		metrics, err := c.Collect(ctx)
+	// Log Prometheus client status with detailed information
+	if r.prometheusClient != nil {
+		logger.Info("Prometheus client is configured", "url", r.prometheusClient.GetBaseURL())
+		
+		// Test Prometheus connectivity
+		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		
+		// Simple query to check if Prometheus is responding
+		testResult, err := r.prometheusClient.Query(testCtx, "up", time.Now())
 		if err != nil {
+			logger.Error(err, "Failed to connect to Prometheus server", "url", r.prometheusClient.GetBaseURL())
+		} else {
+			logger.Info("Successfully connected to Prometheus server", "url", r.prometheusClient.GetBaseURL(), "result", testResult.String())
+		}
+	} else {
+		logger.Info("Prometheus client is not configured, metrics will be limited")
+	}
+
+	// Collect metrics from all collectors with detailed logging
+	for _, c := range r.collectors {
+		logger.Info("Starting metrics collection", "collector", c.Name(), "description", c.Description())
+		
+		// Measure collection time
+		startTime := time.Now()
+		metrics, err := c.Collect(ctx)
+		collectionDuration := time.Since(startTime)
+		
+		if err != nil {
+			logger.Error(err, "Failed to collect metrics", "collector", c.Name(), "duration_ms", collectionDuration.Milliseconds())
 			return fmt.Errorf("failed to collect metrics from %s: %w", c.Name(), err)
 		}
+		
+		logger.Info("Successfully collected metrics", 
+			"collector", c.Name(), 
+			"count", len(metrics), 
+			"duration_ms", collectionDuration.Milliseconds())
+		
+		// Log a sample of metrics for debugging
+		if len(metrics) > 0 {
+			sampleSize := 2 // Increase sample size for better visibility
+			if len(metrics) < sampleSize {
+				sampleSize = len(metrics)
+			}
+			
+			logger.Info("Metrics sample", "collector", c.Name(), "sample_size", sampleSize, "total", len(metrics))
+			
+			for i := 0; i < sampleSize; i++ {
+				// Log basic resource info
+				logger.Info("Resource metrics", 
+					"collector", c.Name(),
+					"resource", metrics[i].Kind+"/"+metrics[i].Name,
+					"namespace", metrics[i].Namespace,
+					"labels", fmt.Sprintf("%v", metrics[i].Labels),
+					"collected_at", metrics[i].CollectedAt.Format(time.RFC3339))
+				
+				// Log resource usage metrics
+				logger.Info("Resource usage", 
+					"resource", metrics[i].Kind+"/"+metrics[i].Name,
+					"cpu_usage_cores", float64(metrics[i].CPU.UsageNanoCores) / 1e9,
+					"cpu_usage_percent", metrics[i].CPU.UsageCorePercent,
+					"memory_usage_mb", float64(metrics[i].Memory.UsageBytes) / (1024 * 1024),
+					"memory_request_mb", float64(metrics[i].Memory.RequestBytes) / (1024 * 1024),
+					"memory_limit_mb", float64(metrics[i].Memory.LimitBytes) / (1024 * 1024))
+				
+				// Log container metrics if available
+				if len(metrics[i].Containers) > 0 {
+					containerSampleSize := 2
+					if len(metrics[i].Containers) < containerSampleSize {
+						containerSampleSize = len(metrics[i].Containers)
+					}
+					
+					logger.Info("Container metrics", 
+						"resource", metrics[i].Kind+"/"+metrics[i].Name, 
+						"container_count", len(metrics[i].Containers),
+						"sample_size", containerSampleSize)
+					
+					for j := 0; j < containerSampleSize; j++ {
+						logger.Info("Container details", 
+							"resource", metrics[i].Kind+"/"+metrics[i].Name,
+							"container", metrics[i].Containers[j].Name,
+							"cpu_usage_cores", float64(metrics[i].Containers[j].CPU.UsageNanoCores) / 1e9,
+							"memory_usage_mb", float64(metrics[i].Containers[j].Memory.UsageBytes) / (1024 * 1024),
+							"ready", metrics[i].Containers[j].Ready,
+							"restarts", metrics[i].Containers[j].Restarts,
+							"state", metrics[i].Containers[j].State)
+					}
+				}
+			}
+		}
+		
 		allMetrics = append(allMetrics, metrics...)
 	}
 
-	// Send metrics to API
+	// Log the total number of metrics collected with summary
+	logger.Info("Total metrics collected", 
+		"count", len(allMetrics), 
+		"collector_count", len(r.collectors),
+		"cluster_name", clusterCtx.Name,
+		"timestamp", time.Now().Format(time.RFC3339))
+
+	// Send metrics to API with detailed logging
+	logger.Info("Sending metrics to HakonGo API", 
+		"count", len(allMetrics), 
+		"api_url", r.apiClient.GetBaseURL())
+	
+	startTime := time.Now()
 	if err := r.apiClient.SendMetrics(ctx, allMetrics); err != nil {
-		return fmt.Errorf("failed to send metrics: %w", err)
+		// Log the error but don't fail the reconciliation
+		logger.Error(err, "Failed to send metrics to HakonGo API", 
+			"duration_ms", time.Since(startTime).Milliseconds())
+		// Continue processing even if sending metrics fails
+		// This allows the connector to continue collecting metrics
+		// even when the API is not available
+		return nil
 	}
+	
+	logger.Info("Successfully sent metrics to HakonGo API", 
+		"count", len(allMetrics), 
+		"duration_ms", time.Since(startTime).Milliseconds())
 
 	return nil
 }

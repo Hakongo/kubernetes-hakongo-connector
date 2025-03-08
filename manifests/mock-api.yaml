@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-hakongo-api
+  labels:
+    app: mock-hakongo-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mock-hakongo-api
+  template:
+    metadata:
+      labels:
+        app: mock-hakongo-api
+    spec:
+      containers:
+      - name: mock-api
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
+        resources:
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d
+        - name: nginx-logs
+          mountPath: /var/log/nginx
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: mock-api-config
+      - name: nginx-logs
+        emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mock-api-config
+data:
+  default.conf: |
+    log_format detailed_logs '$remote_addr - $remote_user [$time_local] "$request" '
+                          '$status $body_bytes_sent "$http_referer" "$http_user_agent" "$http_x_forwarded_for"';
+
+    server {
+      listen 80;
+      access_log /var/log/nginx/access.log detailed_logs;
+      error_log /var/log/nginx/error.log debug;
+      
+      client_body_buffer_size 10M;
+      client_max_body_size 10M;
+      
+      location /v1/metrics {
+        # Log the request details
+        access_log /var/log/nginx/metrics.log detailed_logs;
+        
+        # Return success response
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","message":"Metrics received successfully","timestamp":"$time_local"}';
+      }
+      
+      location / {
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","message":"Mock HakonGo API"}';
+      }
+    }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-hakongo-api
+spec:
+  selector:
+    app: mock-hakongo-api
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP

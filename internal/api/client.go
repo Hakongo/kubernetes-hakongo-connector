@@ -104,6 +104,11 @@ func (c *Client) GetClusterConfig(ctx context.Context, clusterID string) (*Clust
 	return &config, nil
 }
 
+// GetBaseURL returns the base URL of the API
+func (c *Client) GetBaseURL() string {
+	return c.baseURL
+}
+
 // ClusterConfig represents cluster-specific configuration from the SaaS platform
 type ClusterConfig struct {
 	CollectionInterval   time.Duration        `json:"collectionInterval"`
