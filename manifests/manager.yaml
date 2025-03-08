@@ -14,6 +14,8 @@ spec:
         app: hakongo-connector
     spec:
       serviceAccountName: hakongo-connector
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
       - name: manager
         image: ghcr.io/hakongo/kubernetes-hakongo-connector:latest
