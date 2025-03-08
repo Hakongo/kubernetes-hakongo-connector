@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hakongo/kubernetes-connector/internal/metrics"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -13,16 +14,22 @@ import (
 )
 
 type NodeCollector struct {
-	kubeClient    kubernetes.Interface
-	metricsClient versioned.Interface
-	config        CollectorConfig
+	kubeClient       kubernetes.Interface
+	metricsClient    versioned.Interface
+	prometheusClient *metrics.PrometheusClient
+	config           CollectorConfig
+	usePrometheus    bool
+	useMetricsServer bool
 }
 
-func NewNodeCollector(kubeClient kubernetes.Interface, metricsClient versioned.Interface, config CollectorConfig) *NodeCollector {
+func NewNodeCollector(kubeClient kubernetes.Interface, metricsClient versioned.Interface, prometheusClient *metrics.PrometheusClient, config CollectorConfig, usePrometheus bool, useMetricsServer bool) *NodeCollector {
 	return &NodeCollector{
-		kubeClient:    kubeClient,
-		metricsClient: metricsClient,
-		config:        config,
+		kubeClient:       kubeClient,
+		metricsClient:    metricsClient,
+		prometheusClient: prometheusClient,
+		config:           config,
+		usePrometheus:    usePrometheus,
+		useMetricsServer: useMetricsServer,
 	}
 }
 
@@ -40,22 +47,46 @@ func (nc *NodeCollector) Collect(ctx context.Context) ([]ResourceMetrics, error)
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
 
-	nodeMetrics, err := nc.metricsClient.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get node metrics: %w", err)
+	// Get metrics based on user configuration
+	var nodePrometheusMetrics map[string]*PrometheusNodeMetrics
+	var nodeK8sMetricsMap map[string]*metricsv1beta1.NodeMetrics
+
+	// Get Prometheus metrics if configured
+	if nc.usePrometheus && nc.prometheusClient != nil {
+		nodePrometheusMetrics = make(map[string]*PrometheusNodeMetrics)
+
+		// Get metrics for each node from Prometheus
+		for _, node := range nodes.Items {
+			promNodeMetric, err := nc.prometheusClient.GetNodeMetrics(ctx, node.Name)
+			if err != nil {
+				// Log error but continue with other nodes
+				fmt.Printf("Warning: failed to get Prometheus metrics for node %s: %v\n", node.Name, err)
+				continue
+			}
+			// Convert from Prometheus client NodeMetrics to our internal PrometheusNodeMetrics
+			nodeMetric := &PrometheusNodeMetrics{
+				CPUUsage:    promNodeMetric.CPUUsage,
+				MemoryUsage: promNodeMetric.MemoryUsage,
+			}
+			nodePrometheusMetrics[node.Name] = nodeMetric
+		}
 	}
 
-	nodeMetricsMap := make(map[string]*metricsv1beta1.NodeMetrics)
-	for _, nodeMetric := range nodeMetrics.Items {
-		nodeMetricsMap[nodeMetric.Name] = &nodeMetric
+	// Get Kubernetes Metrics Server metrics if configured
+	if nc.useMetricsServer {
+		nodeMetrics, err := nc.metricsClient.MetricsV1beta1().NodeMetricses().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			// Log error but continue
+			fmt.Printf("Warning: failed to get node metrics from Kubernetes metrics API: %v\n", err)
+		} else {
+			nodeK8sMetricsMap = make(map[string]*metricsv1beta1.NodeMetrics)
+			for _, nodeMetric := range nodeMetrics.Items {
+				nodeK8sMetricsMap[nodeMetric.Name] = &nodeMetric
+			}
+		}
 	}
 
 	for _, node := range nodes.Items {
-		nodeMetric, exists := nodeMetricsMap[node.Name]
-		if !exists {
-			continue
-		}
-
 		metric := ResourceMetrics{
 			Name:        node.Name,
 			Kind:        "Node",
@@ -63,8 +94,30 @@ func (nc *NodeCollector) Collect(ctx context.Context) ([]ResourceMetrics, error)
 			CollectedAt: time.Now(),
 		}
 
-		metric.CPU = nc.calculateCPUMetrics(nodeMetric)
-		metric.Memory = nc.calculateMemoryMetrics(nodeMetric)
+		// Get metrics from configured sources
+		// First try Prometheus if enabled
+		if nc.usePrometheus && nodePrometheusMetrics != nil {
+			if promMetric, exists := nodePrometheusMetrics[node.Name]; exists {
+				metric.CPU = nc.calculateCPUMetricsFromPrometheus(promMetric)
+				metric.Memory = nc.calculateMemoryMetricsFromPrometheus(promMetric)
+			}
+		}
+
+		// Then try Metrics Server if enabled
+		// If we already have CPU/Memory from Prometheus, we'll keep those values
+		if nc.useMetricsServer && nodeK8sMetricsMap != nil {
+			if k8sMetric, exists := nodeK8sMetricsMap[node.Name]; exists {
+				// Only set metrics if not already set by Prometheus
+				if metric.CPU.UsageNanoCores == 0 {
+					metric.CPU = nc.calculateCPUMetrics(k8sMetric)
+				}
+				if metric.Memory.UsageBytes == 0 {
+					metric.Memory = nc.calculateMemoryMetrics(k8sMetric)
+				}
+			}
+		}
+
+		// These metrics don't depend on Prometheus or Kubernetes metrics API
 		metric.Storage = nc.calculateStorageMetrics(&node)
 		metric.Network = nc.calculateNetworkMetrics(&node)
 		metric.Cost = nc.calculateCostMetrics(metric.CPU, metric.Memory, &node)
@@ -84,9 +137,28 @@ func (nc *NodeCollector) calculateCPUMetrics(metrics *metricsv1beta1.NodeMetrics
 	return cpu
 }
 
+// PrometheusNodeMetrics represents resource usage metrics for nodes from Prometheus
+type PrometheusNodeMetrics struct {
+	CPUUsage    float64 // CPU usage in cores
+	MemoryUsage float64 // Memory usage in bytes
+}
+
+func (nc *NodeCollector) calculateCPUMetricsFromPrometheus(metrics *PrometheusNodeMetrics) CPUMetrics {
+	var cpu CPUMetrics
+	cpu.UsageNanoCores = int64(metrics.CPUUsage * 1e9) // Convert cores to nanocores
+	cpu.UsageCorePercent = metrics.CPUUsage
+	return cpu
+}
+
 func (nc *NodeCollector) calculateMemoryMetrics(metrics *metricsv1beta1.NodeMetrics) MemoryMetrics {
 	return MemoryMetrics{
 		UsageBytes: metrics.Usage.Memory().Value(),
+	}
+}
+
+func (nc *NodeCollector) calculateMemoryMetricsFromPrometheus(metrics *PrometheusNodeMetrics) MemoryMetrics {
+	return MemoryMetrics{
+		UsageBytes: int64(metrics.MemoryUsage),
 	}
 }
 

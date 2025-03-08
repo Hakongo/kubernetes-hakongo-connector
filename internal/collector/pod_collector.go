@@ -15,13 +15,15 @@ type PodCollector struct {
 	kubeClient       kubernetes.Interface
 	prometheusClient *metrics.PrometheusClient
 	config           CollectorConfig
+	usePrometheus    bool
 }
 
-func NewPodCollector(kubeClient kubernetes.Interface, prometheusClient *metrics.PrometheusClient, config CollectorConfig) *PodCollector {
+func NewPodCollector(kubeClient kubernetes.Interface, prometheusClient *metrics.PrometheusClient, config CollectorConfig, usePrometheus bool) *PodCollector {
 	return &PodCollector{
 		kubeClient:       kubeClient,
 		prometheusClient: prometheusClient,
 		config:           config,
+		usePrometheus:    usePrometheus,
 	}
 }
 
@@ -52,12 +54,29 @@ func (c *PodCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) {
 			continue
 		}
 
-		// Get pod metrics from Prometheus
-		containerMetrics, err := c.prometheusClient.GetContainerMetrics(ctx, pod.Namespace, pod.Name)
-		if err != nil {
-			// Log error but continue collecting other pod metrics
-			fmt.Printf("Error getting metrics for pod %s/%s: %v\n", pod.Namespace, pod.Name, err)
-			continue
+		// Get pod metrics from Prometheus if configured
+		var containerCPUMetrics map[string]float64
+		var containerMemoryMetrics map[string]float64
+		
+		// Initialize empty metrics
+		containerCPUMetrics = make(map[string]float64)
+		containerMemoryMetrics = make(map[string]float64)
+		
+		if c.usePrometheus && c.prometheusClient != nil {
+			// Try to get metrics from Prometheus
+			promContainerMetrics, err := c.prometheusClient.GetContainerMetrics(ctx, pod.Namespace, pod.Name)
+			if err != nil {
+				// Log error but continue collecting other pod metrics
+				fmt.Printf("Error getting metrics for pod %s/%s from Prometheus: %v\n", pod.Namespace, pod.Name, err)
+			} else {
+				// Copy metrics from Prometheus
+				for container, cpu := range promContainerMetrics.CPU {
+					containerCPUMetrics[container] = cpu
+				}
+				for container, memory := range promContainerMetrics.Memory {
+					containerMemoryMetrics[container] = memory
+				}
+			}
 		}
 
 		// Create pod metrics
@@ -78,8 +97,8 @@ func (c *PodCollector) Collect(ctx context.Context) ([]ResourceMetrics, error) {
 		// Add container metrics
 		for _, container := range pod.Spec.Containers {
 			containerName := container.Name
-			cpuUsage := containerMetrics.CPU[containerName]
-			memoryUsage := containerMetrics.Memory[containerName]
+			cpuUsage := containerCPUMetrics[containerName]
+			memoryUsage := containerMemoryMetrics[containerName]
 
 			containerStatus := getContainerStatus(pod.Status.ContainerStatuses, containerName)
 

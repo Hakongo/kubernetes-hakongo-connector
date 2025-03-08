@@ -185,6 +185,25 @@ func (r *ConnectorConfigReconciler) collectMetrics(ctx context.Context, clusterC
 			logger.Error(err, "Failed to connect to Prometheus server", "url", r.prometheusClient.GetBaseURL())
 		} else {
 			logger.Info("Successfully connected to Prometheus server", "url", r.prometheusClient.GetBaseURL(), "result", testResult.String())
+			
+			// Get some sample metrics to verify Prometheus data collection
+			// Query CPU usage for pods
+			cpuQuery := "sum(rate(container_cpu_usage_seconds_total{container!='POD',container!=''}[5m])) by (pod, namespace)"
+			cpuResult, cpuErr := r.prometheusClient.Query(testCtx, cpuQuery, time.Now())
+			if cpuErr != nil {
+				logger.Error(cpuErr, "Failed to query CPU metrics from Prometheus", "query", cpuQuery)
+			} else {
+				logger.Info("Prometheus CPU metrics sample", "query", cpuQuery, "result_type", cpuResult.Type().String(), "sample_count", len(cpuResult.String()) > 0)
+			}
+			
+			// Query memory usage for pods
+			memQuery := "sum(container_memory_working_set_bytes{container!='POD',container!=''}) by (pod, namespace)"
+			memResult, memErr := r.prometheusClient.Query(testCtx, memQuery, time.Now())
+			if memErr != nil {
+				logger.Error(memErr, "Failed to query memory metrics from Prometheus", "query", memQuery)
+			} else {
+				logger.Info("Prometheus memory metrics sample", "query", memQuery, "result_type", memResult.Type().String(), "sample_count", len(memResult.String()) > 0)
+			}
 		}
 	} else {
 		logger.Info("Prometheus client is not configured, metrics will be limited")
