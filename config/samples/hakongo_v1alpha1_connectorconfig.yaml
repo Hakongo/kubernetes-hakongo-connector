@@ -57,4 +57,4 @@ metadata:
   name: hakongo-api-key
 type: Opaque
 data:
-  api-key: org_1-6eb1a5e4af767f5e86d0d6b11622dd9c  # This is "test-api-key" in base64
+  api-key: b3JnXzEtNmViMWE1ZTRhZjc2N2Y1ZTg2ZDBkNmIxMTYyMmRkOWM=  # Base64 encoded API key

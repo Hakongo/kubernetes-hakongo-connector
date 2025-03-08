@@ -200,9 +200,13 @@ func (r *ConnectorConfigReconciler) ensureClients(ctx context.Context, config *h
 
 	// Get API key from secret
 	var apiKeySecret corev1.Secret
+	namespace := config.Namespace
+	if namespace == "" {
+		namespace = "default" // Use default namespace if not specified
+	}
 	if err := r.Get(ctx, types.NamespacedName{
 		Name:      config.Spec.HakonGo.APIKey.Name,
-		Namespace: config.Namespace,
+		Namespace: namespace,
 	}, &apiKeySecret); err != nil {
 		return fmt.Errorf("failed to get API key secret: %w", err)
 	}
