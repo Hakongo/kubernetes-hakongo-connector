@@ -1,0 +1,415 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.17.2
+  name: connectorconfigs.hakongo.codeium.com
+spec:
+  group: hakongo.codeium.com
+  names:
+    kind: ConnectorConfig
+    listKind: ConnectorConfigList
+    plural: connectorconfigs
+    singular: connectorconfig
+  scope: Cluster
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: ConnectorConfig is the Schema for the connectorconfigs API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ConnectorConfigSpec defines the desired state of ConnectorConfig
+            properties:
+              clusterContext:
+                description: ClusterContext contains information about the cluster
+                properties:
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels to be added to all metrics
+                    type: object
+                  metadata:
+                    additionalProperties:
+                      type: string
+                    description: Additional metadata about the cluster
+                    type: object
+                  name:
+                    description: Name of the cluster
+                    type: string
+                  region:
+                    description: Region where the cluster is running
+                    type: string
+                  type:
+                    description: Type of the cluster (e.g. aws, gcp, azure)
+                    type: string
+                  zone:
+                    description: Zone where the cluster is running
+                    type: string
+                required:
+                - name
+                - region
+                - type
+                type: object
+              collectors:
+                description: Collectors is a list of collectors to enable
+                items:
+                  description: CollectorSpec defines configuration for a specific
+                    collector
+                  properties:
+                    interval:
+                      default: 60
+                      description: Collection interval in seconds
+                      format: int32
+                      type: integer
+                    labels:
+                      additionalProperties:
+                        type: string
+                      description: Labels to be added to metrics from this collector
+                      type: object
+                    name:
+                      description: Name of the collector
+                      type: string
+                  required:
+                  - name
+                  type: object
+                type: array
+              cost:
+                description: Cost configuration for cost calculations
+                properties:
+                  currency:
+                    default: USD
+                    description: Currency is the currency used for cost calculations
+                    type: string
+                  labels:
+                    additionalProperties:
+                      type: string
+                    description: Labels to be added to cost metrics
+                    type: object
+                  metadata:
+                    additionalProperties:
+                      type: string
+                    description: Additional metadata for cost calculations
+                    type: object
+                  priceBook:
+                    description: PriceBook is the name of the price book to use
+                    type: string
+                type: object
+              hakongo:
+                description: HakonGo configuration for connecting to the API
+                properties:
+                  apiKey:
+                    description: APIKey defines the API key for authentication
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  baseURL:
+                    description: BaseURL is the base URL for the HakonGo API
+                    type: string
+                required:
+                - apiKey
+                - baseURL
+                type: object
+              metricsServer:
+                description: MetricsServer defines the configuration for Kubernetes
+                  Metrics Server
+                properties:
+                  enabled:
+                    default: false
+                    description: Enabled defines whether to use Kubernetes Metrics
+                      Server
+                    type: boolean
+                type: object
+              prometheus:
+                description: Prometheus defines the configuration for Prometheus metrics
+                properties:
+                  basicAuth:
+                    description: BasicAuth defines basic authentication configuration
+                    properties:
+                      password:
+                        description: Password for basic authentication
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      username:
+                        description: Username for basic authentication
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                  bearerToken:
+                    description: BearerToken defines bearer token authentication
+                    properties:
+                      key:
+                        description: The key of the secret to select from.  Must be
+                          a valid secret key.
+                        type: string
+                      name:
+                        default: ""
+                        description: |-
+                          Name of the referent.
+                          This field is effectively required, but due to backwards compatibility is
+                          allowed to be empty. Instances of this type with an empty value here are
+                          almost certainly wrong.
+                          More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                        type: string
+                      optional:
+                        description: Specify whether the Secret or its key must be
+                          defined
+                        type: boolean
+                    required:
+                    - key
+                    type: object
+                    x-kubernetes-map-type: atomic
+                  queryTimeout:
+                    default: 30s
+                    description: QueryTimeout defines the timeout for Prometheus queries
+                    type: string
+                  scrapeInterval:
+                    default: 30s
+                    description: ScrapeInterval defines how frequently to scrape targets
+                    type: string
+                  serviceMonitorSelector:
+                    additionalProperties:
+                      type: string
+                    description: ServiceMonitorSelector defines labels to select ServiceMonitors
+                    type: object
+                  tlsConfig:
+                    description: TLSConfig defines TLS configuration
+                    properties:
+                      ca:
+                        description: CA defines the CA certificate
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      cert:
+                        description: Cert defines the client certificate
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      insecureSkipVerify:
+                        description: InsecureSkipVerify defines whether to skip TLS
+                          verification
+                        type: boolean
+                      key:
+                        description: Key defines the client key
+                        properties:
+                          key:
+                            description: The key of the secret to select from.  Must
+                              be a valid secret key.
+                            type: string
+                          name:
+                            default: ""
+                            description: |-
+                              Name of the referent.
+                              This field is effectively required, but due to backwards compatibility is
+                              allowed to be empty. Instances of this type with an empty value here are
+                              almost certainly wrong.
+                              More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                            type: string
+                          optional:
+                            description: Specify whether the Secret or its key must
+                              be defined
+                            type: boolean
+                        required:
+                        - key
+                        type: object
+                        x-kubernetes-map-type: atomic
+                    type: object
+                  url:
+                    description: URL is the base URL for the Prometheus API
+                    type: string
+                required:
+                - url
+                type: object
+            required:
+            - clusterContext
+            - hakongo
+            type: object
+          status:
+            description: ConnectorConfigStatus defines the observed state of ConnectorConfig
+            properties:
+              conditions:
+                description: Conditions represent the latest available observations
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                type: array
+              lastCollectionTime:
+                description: LastCollectionTime is the last time metrics were collected
+                format: date-time
+                type: string
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

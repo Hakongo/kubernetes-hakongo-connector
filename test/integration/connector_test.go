@@ -4,13 +4,14 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	hakongov1alpha1 "github.com/hakongo/kubernetes-connector/api/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	hakongov1alpha1 "github.com/hakongo/kubernetes-connector/api/v1alpha1"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestConnectorConfig(t *testing.T) {
@@ -21,6 +22,17 @@ func TestConnectorConfig(t *testing.T) {
 	// Create a fake client
 	cli := fake.NewClientBuilder().WithScheme(s).Build()
 
+	// Create test secret
+	secret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-api-key",
+			Namespace: "default",
+		},
+		Data: map[string][]byte{
+			"api-key": []byte("test-key"),
+		},
+	}
+
 	// Create a test ConnectorConfig
 	cfg := &hakongov1alpha1.ConnectorConfig{
 		ObjectMeta: metav1.ObjectMeta{
@@ -30,9 +42,11 @@ func TestConnectorConfig(t *testing.T) {
 		Spec: hakongov1alpha1.ConnectorConfigSpec{
 			HakonGo: hakongov1alpha1.HakonGoConfig{
 				BaseURL: "https://api.hakongo.io",
-				APIKey: hakongov1alpha1.SecretKeyRef{
-					Name: "hakongo-secret",
-					Key:  "api-key",
+				APIKey: corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: "test-api-key",
+					},
+					Key: "api-key",
 				},
 			},
 			ClusterContext: hakongov1alpha1.ClusterContextConfig{
@@ -43,8 +57,12 @@ func TestConnectorConfig(t *testing.T) {
 		},
 	}
 
+	// Create the secret
+	err := cli.Create(context.Background(), secret)
+	assert.NoError(t, err)
+
 	// Create the config
-	err := cli.Create(context.Background(), cfg)
+	err = cli.Create(context.Background(), cfg)
 	assert.NoError(t, err)
 
 	// Verify we can get it back

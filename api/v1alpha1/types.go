@@ -1,12 +1,16 @@
+// +groupName=hakongo.codeium.com
+
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 //+kubebuilder:resource:scope=Cluster
+//+kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 
 // ConnectorConfig is the Schema for the connectorconfigs API
 type ConnectorConfig struct {
@@ -43,6 +47,14 @@ type ConnectorConfigSpec struct {
 	// Cost configuration for cost calculations
 	// +optional
 	Cost *CostConfig `json:"cost,omitempty"`
+
+	// Prometheus defines the configuration for Prometheus metrics
+	// +optional
+	Prometheus *PrometheusConfig `json:"prometheus,omitempty"`
+
+	// MetricsServer defines the configuration for Kubernetes Metrics Server
+	// +optional
+	MetricsServer *MetricsServerConfig `json:"metricsServer,omitempty"`
 }
 
 //+k8s:deepcopy-gen=true
@@ -93,24 +105,15 @@ type CollectorSpec struct {
 
 //+k8s:deepcopy-gen=true
 
-// HakonGoConfig defines configuration for connecting to HakonGo API
+// HakonGoConfig defines configuration for the HakonGo API
 type HakonGoConfig struct {
 	// BaseURL is the base URL for the HakonGo API
-	BaseURL string `json:"baseUrl"`
+	// +kubebuilder:validation:Required
+	BaseURL string `json:"baseURL"`
 
-	// APIKey reference to the API key secret
-	APIKey SecretKeyRef `json:"apiKey"`
-}
-
-//+k8s:deepcopy-gen=true
-
-// SecretKeyRef references a key in a secret
-type SecretKeyRef struct {
-	// Name of the secret
-	Name string `json:"name"`
-
-	// Key within the secret
-	Key string `json:"key"`
+	// APIKey defines the API key for authentication
+	// +kubebuilder:validation:Required
+	APIKey corev1.SecretKeySelector `json:"apiKey"`
 }
 
 //+k8s:deepcopy-gen=true
@@ -133,6 +136,89 @@ type CostConfig struct {
 	// Additional metadata for cost calculations
 	// +optional
 	Metadata map[string]string `json:"metadata,omitempty"`
+}
+
+//+k8s:deepcopy-gen=true
+
+// PrometheusConfig defines configuration for Prometheus metrics collection
+// +kubebuilder:object:generate=true
+type PrometheusConfig struct {
+	// URL is the base URL for the Prometheus API
+	// +kubebuilder:validation:Required
+	URL string `json:"url"`
+
+	// ServiceMonitorSelector defines labels to select ServiceMonitors
+	// +optional
+	ServiceMonitorSelector map[string]string `json:"serviceMonitorSelector,omitempty"`
+
+	// ScrapeInterval defines how frequently to scrape targets
+	// +optional
+	// +kubebuilder:default="30s"
+	ScrapeInterval string `json:"scrapeInterval,omitempty"`
+
+	// QueryTimeout defines the timeout for Prometheus queries
+	// +optional
+	// +kubebuilder:default="30s"
+	QueryTimeout string `json:"queryTimeout,omitempty"`
+
+	// BasicAuth defines basic authentication configuration
+	// +optional
+	BasicAuth *BasicAuthConfig `json:"basicAuth,omitempty"`
+
+	// BearerToken defines bearer token authentication
+	// +optional
+	BearerToken *corev1.SecretKeySelector `json:"bearerToken,omitempty"`
+
+	// TLSConfig defines TLS configuration
+	// +optional
+	TLSConfig *TLSConfig `json:"tlsConfig,omitempty"`
+}
+
+//+k8s:deepcopy-gen:interfaces=github.com/openshift/hive/pkg/apis/hive/v1alpha1.SecretKeySelector
+
+// BasicAuthConfig defines basic authentication configuration
+// +kubebuilder:object:generate=true
+type BasicAuthConfig struct {
+	// Username for basic authentication
+	// +optional
+	Username *corev1.SecretKeySelector `json:"username,omitempty"`
+
+	// Password for basic authentication
+	// +optional
+	Password *corev1.SecretKeySelector `json:"password,omitempty"`
+}
+
+//+k8s:deepcopy-gen:interfaces=github.com/openshift/hive/pkg/apis/hive/v1alpha1.SecretKeySelector
+
+// TLSConfig defines TLS configuration
+// +kubebuilder:object:generate=true
+type TLSConfig struct {
+	// CA defines the CA certificate
+	// +optional
+	CA *corev1.SecretKeySelector `json:"ca,omitempty"`
+
+	// Cert defines the client certificate
+	// +optional
+	Cert *corev1.SecretKeySelector `json:"cert,omitempty"`
+
+	// Key defines the client key
+	// +optional
+	Key *corev1.SecretKeySelector `json:"key,omitempty"`
+
+	// InsecureSkipVerify defines whether to skip TLS verification
+	// +optional
+	InsecureSkipVerify bool `json:"insecureSkipVerify,omitempty"`
+}
+
+//+k8s:deepcopy-gen=true
+
+// MetricsServerConfig defines configuration for Kubernetes Metrics Server
+// +kubebuilder:object:generate=true
+type MetricsServerConfig struct {
+	// Enabled defines whether to use Kubernetes Metrics Server
+	// +optional
+	// +kubebuilder:default=false
+	Enabled bool `json:"enabled"`
 }
 
 //+k8s:deepcopy-gen=true

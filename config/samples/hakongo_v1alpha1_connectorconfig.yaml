@@ -1,43 +1,55 @@
-apiVersion: hakongo.hakongo.com/v1alpha1
+apiVersion: hakongo.codeium.com/v1alpha1
 kind: ConnectorConfig
 metadata:
-  name: connectorconfig-sample
+  name: connector-sample
 spec:
   hakongo:
-    baseUrl: "http://localhost:3000"
-    clusterId: "prod-us-west-2"
-    apiKeySecret:
+    baseURL: "http://localhost:3000"
+    apiKey:
       name: hakongo-api-key
       key: api-key
 
   clusterContext:
-    name: "production-cluster"
-    providerName: "aws"
-    region: "us-west-2"
-    zone: "us-west-2a"
+    name: "my-cluster"
+    type: "kind"
+    region: "local"
     labels:
-      environment: "production"
+      environment: "development"
       team: "platform"
-      cost-center: "12345"
     metadata:
-      vpc_id: "vpc-1234567890abcdef0"
-      subnet_ids: ["subnet-abc123", "subnet-def456"]
+      provider: "docker-desktop"
+
+  prometheus:
+    url: "http://10.96.151.77:9090"
+    scrapeInterval: "30s"
+    queryTimeout: "30s"
+    serviceMonitorSelector:
+      release: "my-kube-prometheus-stack"
 
   collectors:
     - name: "pod"
-      enabled: true
+      interval: 60
+      labels:
+        environment: "development"
+        cluster_type: "docker-desktop"
     - name: "node"
-      enabled: true
+      interval: 60
     - name: "pv"
-      enabled: true
+      interval: 120
     - name: "service"
-      enabled: true
+      interval: 120
     - name: "namespace"
-      enabled: true
+      interval: 300
+      labels:
+        collector: "namespace"
     - name: "workload"
-      enabled: true
+      interval: 300
+      labels:
+        collector: "workload"
     - name: "ingress"
-      enabled: true
+      interval: 300
+      labels:
+        collector: "network"
 ---
 apiVersion: v1
 kind: Secret
@@ -45,4 +57,4 @@ metadata:
   name: hakongo-api-key
 type: Opaque
 data:
-  api-key: dGVzdC1hcGkta2V5  # This is "test-api-key" in base64
+  api-key: org_1-6eb1a5e4af767f5e86d0d6b11622dd9c  # This is "test-api-key" in base64

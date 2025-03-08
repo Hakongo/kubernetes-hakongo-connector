@@ -3,18 +3,22 @@ package controller
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	hakongov1alpha1 "github.com/hakongo/kubernetes-connector/api/v1alpha1"
 	"github.com/hakongo/kubernetes-connector/internal/api"
 	"github.com/hakongo/kubernetes-connector/internal/cluster"
 	"github.com/hakongo/kubernetes-connector/internal/collector"
+	"github.com/hakongo/kubernetes-connector/internal/metrics"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	versioned "k8s.io/metrics/pkg/client/clientset/versioned"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/metrics/pkg/client/clientset/versioned"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -25,11 +29,12 @@ type ConnectorConfigReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
 
-	kubeClient     kubernetes.Interface
-	metricsClient  versioned.Interface
-	apiClient      *api.Client
-	collectors     []collector.Collector
-	contextProvider *cluster.ContextProvider
+	kubeClient       kubernetes.Interface
+	metricsClient    versioned.Interface
+	prometheusClient *metrics.PrometheusClient
+	apiClient        *api.Client
+	collectors       []collector.Collector
+	contextProvider  *cluster.ContextProvider
 }
 
 func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -44,7 +49,7 @@ func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	logger.Info("Reconciling ConnectorConfig", "name", req.Name)
 
 	// Initialize clients if needed
-	if err := r.ensureClients(connConfig); err != nil {
+	if err := r.ensureClients(ctx, connConfig); err != nil {
 		logger.Error(err, "Failed to initialize clients")
 		return ctrl.Result{}, err
 	}
@@ -59,9 +64,9 @@ func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 			ClusterName:  connConfig.Spec.ClusterContext.Name,
 			ProviderName: connConfig.Spec.ClusterContext.Type,
 			Region:       connConfig.Spec.ClusterContext.Region,
-			Zone:        connConfig.Spec.ClusterContext.Zone,
-			Labels:      connConfig.Spec.ClusterContext.Labels,
-			Metadata:    metadata,
+			Zone:         connConfig.Spec.ClusterContext.Zone,
+			Labels:       connConfig.Spec.ClusterContext.Labels,
+			Metadata:     metadata,
 		})
 	}
 
@@ -88,13 +93,32 @@ func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 }
 
 func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config *hakongov1alpha1.ConnectorConfig, clusterCtx *cluster.ClusterContext) error {
+	// Initialize Prometheus client if needed
+	if r.prometheusClient == nil && config.Spec.Prometheus != nil {
+		var err error
+		r.prometheusClient, err = metrics.NewPrometheusClient(config.Spec.Prometheus.URL)
+		if err != nil {
+			return fmt.Errorf("failed to create Prometheus client: %w", err)
+		}
+	}
+
 	// Create base collector config
 	collectorConfig := collector.CollectorConfig{
-		CollectionInterval: time.Duration(60) * time.Second, // Default to 60s
-		IncludeNamespaces: []string{},                      // Collect from all namespaces
-		ExcludeNamespaces: []string{"kube-system"},         // Exclude system namespaces by default
-		IncludeLabels:     clusterCtx.Labels,
+		CollectionInterval:       time.Duration(60) * time.Second, // Default to 60s
+		IncludeNamespaces:        []string{},                      // Collect from all namespaces
+		ExcludeNamespaces:        []string{"kube-system"},         // Exclude system namespaces by default
+		IncludeLabels:            make(map[string]string),
 		MaxConcurrentCollections: 5,
+	}
+
+	// Add cluster context labels
+	if clusterCtx != nil {
+		collectorConfig.IncludeLabels["cluster_name"] = clusterCtx.Name
+		if clusterCtx.Labels != nil {
+			for k, v := range clusterCtx.Labels {
+				collectorConfig.IncludeLabels[k] = v
+			}
+		}
 	}
 
 	// Override config from spec if provided
@@ -112,9 +136,9 @@ func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config 
 		}
 	}
 
-	// Initialize collectors
+	// Create collectors
 	r.collectors = []collector.Collector{
-		collector.NewPodCollector(r.kubeClient, r.metricsClient, collectorConfig),
+		collector.NewPodCollector(r.kubeClient, r.prometheusClient, collectorConfig),
 		collector.NewNodeCollector(r.kubeClient, r.metricsClient, collectorConfig),
 		collector.NewPVCollector(r.kubeClient, r.metricsClient, collectorConfig),
 		collector.NewServiceCollector(r.kubeClient, r.metricsClient, collectorConfig),
@@ -146,12 +170,21 @@ func (r *ConnectorConfigReconciler) collectMetrics(ctx context.Context, clusterC
 	return nil
 }
 
-func (r *ConnectorConfigReconciler) ensureClients(config *hakongov1alpha1.ConnectorConfig) error {
+func (r *ConnectorConfigReconciler) ensureClients(ctx context.Context, config *hakongov1alpha1.ConnectorConfig) error {
 	// Initialize Kubernetes clients if needed
 	if r.kubeClient == nil {
 		cfg, err := rest.InClusterConfig()
 		if err != nil {
-			return fmt.Errorf("failed to get cluster config: %w", err)
+			// Fall back to kubeconfig
+			kubeconfigPath := os.Getenv("KUBECONFIG")
+			if kubeconfigPath == "" {
+				home, _ := os.UserHomeDir()
+				kubeconfigPath = filepath.Join(home, ".kube", "config")
+			}
+			cfg, err = clientcmd.BuildConfigFromFlags("", kubeconfigPath)
+			if err != nil {
+				return fmt.Errorf("failed to get kubeconfig: %w", err)
+			}
 		}
 
 		r.kubeClient, err = kubernetes.NewForConfig(cfg)
@@ -165,28 +198,27 @@ func (r *ConnectorConfigReconciler) ensureClients(config *hakongov1alpha1.Connec
 		}
 	}
 
+	// Get API key from secret
+	var apiKeySecret corev1.Secret
+	if err := r.Get(ctx, types.NamespacedName{
+		Name:      config.Spec.HakonGo.APIKey.Name,
+		Namespace: config.Namespace,
+	}, &apiKeySecret); err != nil {
+		return fmt.Errorf("failed to get API key secret: %w", err)
+	}
+
+	apiKey := string(apiKeySecret.Data[config.Spec.HakonGo.APIKey.Key])
+	if apiKey == "" {
+		return fmt.Errorf("API key not found in secret %s at key %s",
+			config.Spec.HakonGo.APIKey.Name, config.Spec.HakonGo.APIKey.Key)
+	}
+
 	// Initialize API client if needed
 	if r.apiClient == nil {
-		// Get API key from secret
-		secret := &corev1.Secret{}
-		if err := r.Get(context.Background(), types.NamespacedName{
-			Name:      config.Spec.HakonGo.APIKey.Name,
-			Namespace: "default", // TODO: Get from config
-		}, secret); err != nil {
-			return fmt.Errorf("failed to get API key secret: %w", err)
-		}
-
-		apiKey := string(secret.Data[config.Spec.HakonGo.APIKey.Key])
-		if apiKey == "" {
-			return fmt.Errorf("API key not found in secret %s", config.Spec.HakonGo.APIKey.Name)
-		}
-
 		r.apiClient = api.NewClient(api.ClientConfig{
-			BaseURL:            config.Spec.HakonGo.BaseURL,
-			APIKey:             apiKey,
-			Timeout:           30 * time.Second,
-			MaxRetries:        3,
-			RetryWaitDuration: 5 * time.Second,
+			BaseURL: config.Spec.HakonGo.BaseURL,
+			APIKey:  apiKey,
+			Timeout: 30 * time.Second,
 		})
 	}
 
