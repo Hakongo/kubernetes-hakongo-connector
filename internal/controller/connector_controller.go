@@ -162,6 +162,7 @@ func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config 
 		collector.NewNamespaceCollector(r.kubeClient, collectorConfig),
 		collector.NewWorkloadCollector(r.kubeClient, collectorConfig),
 		collector.NewIngressCollector(r.kubeClient, collectorConfig),
+		collector.NewEventCollector(r.kubeClient, collectorConfig),
 	}
 
 	return nil
@@ -209,6 +210,10 @@ func (r *ConnectorConfigReconciler) collectMetrics(ctx context.Context, clusterC
 		logger.Info("Prometheus client is not configured, metrics will be limited")
 	}
 
+	// Separate metrics for events and other resources
+	var eventMetrics []collector.ResourceMetrics
+	var regularMetrics []collector.ResourceMetrics
+
 	// Collect metrics from all collectors with detailed logging
 	for _, c := range r.collectors {
 		logger.Info("Starting metrics collection", "collector", c.Name(), "description", c.Description())
@@ -246,14 +251,26 @@ func (r *ConnectorConfigReconciler) collectMetrics(ctx context.Context, clusterC
 					"labels", fmt.Sprintf("%v", metrics[i].Labels),
 					"collected_at", metrics[i].CollectedAt.Format(time.RFC3339))
 				
-				// Log resource usage metrics
-				logger.Info("Resource usage", 
-					"resource", metrics[i].Kind+"/"+metrics[i].Name,
-					"cpu_usage_cores", float64(metrics[i].CPU.UsageNanoCores) / 1e9,
-					"cpu_usage_percent", metrics[i].CPU.UsageCorePercent,
-					"memory_usage_mb", float64(metrics[i].Memory.UsageBytes) / (1024 * 1024),
-					"memory_request_mb", float64(metrics[i].Memory.RequestBytes) / (1024 * 1024),
-					"memory_limit_mb", float64(metrics[i].Memory.LimitBytes) / (1024 * 1024))
+				// Log resource usage metrics if not an event
+				if metrics[i].Kind != "Event" {
+					logger.Info("Resource usage", 
+						"resource", metrics[i].Kind+"/"+metrics[i].Name,
+						"cpu_usage_cores", float64(metrics[i].CPU.UsageNanoCores) / 1e9,
+						"cpu_usage_percent", metrics[i].CPU.UsageCorePercent,
+						"memory_usage_mb", float64(metrics[i].Memory.UsageBytes) / (1024 * 1024),
+						"memory_request_mb", float64(metrics[i].Memory.RequestBytes) / (1024 * 1024),
+						"memory_limit_mb", float64(metrics[i].Memory.LimitBytes) / (1024 * 1024))
+				} else {
+					// Log event-specific information
+					if metrics[i].Status != nil {
+						logger.Info("Event details",
+							"resource", metrics[i].Kind+"/"+metrics[i].Name,
+							"type", metrics[i].Status["type"],
+							"reason", metrics[i].Status["reason"],
+							"count", metrics[i].Status["count"],
+							"severity", metrics[i].Status["severity"])
+					}
+				}
 				
 				// Log container metrics if available
 				if len(metrics[i].Containers) > 0 {
@@ -281,35 +298,74 @@ func (r *ConnectorConfigReconciler) collectMetrics(ctx context.Context, clusterC
 			}
 		}
 		
+		// Separate event metrics from other resource metrics
+		for _, metric := range metrics {
+			if metric.Kind == "Event" {
+				eventMetrics = append(eventMetrics, metric)
+			} else {
+				regularMetrics = append(regularMetrics, metric)
+			}
+		}
+		
+		// Add all metrics to the combined list for backward compatibility
 		allMetrics = append(allMetrics, metrics...)
 	}
 
 	// Log the total number of metrics collected with summary
 	logger.Info("Total metrics collected", 
 		"count", len(allMetrics), 
+		"regular_metrics", len(regularMetrics),
+		"event_metrics", len(eventMetrics),
 		"collector_count", len(r.collectors),
 		"cluster_name", clusterCtx.Name,
 		"timestamp", time.Now().Format(time.RFC3339))
 
-	// Send metrics to API with detailed logging
-	logger.Info("Sending metrics to HakonGo API", 
-		"count", len(allMetrics), 
-		"api_url", r.apiClient.GetBaseURL())
-	
-	startTime := time.Now()
-	if err := r.apiClient.SendMetrics(ctx, allMetrics); err != nil {
-		// Log the error but don't fail the reconciliation
-		logger.Error(err, "Failed to send metrics to HakonGo API", 
-			"duration_ms", time.Since(startTime).Milliseconds())
-		// Continue processing even if sending metrics fails
-		// This allows the connector to continue collecting metrics
-		// even when the API is not available
-		return nil
+	// Send regular metrics to API with detailed logging
+	if len(regularMetrics) > 0 {
+		logger.Info("Sending regular metrics to HakonGo API", 
+			"count", len(regularMetrics), 
+			"api_url", r.apiClient.GetBaseURL())
+		
+		startTime := time.Now()
+		if err := r.apiClient.SendMetrics(ctx, regularMetrics); err != nil {
+			// Log the error but don't fail the reconciliation
+			logger.Error(err, "Failed to send regular metrics to HakonGo API", 
+				"duration_ms", time.Since(startTime).Milliseconds())
+			// Continue processing even if sending metrics fails
+		} else {
+			logger.Info("Successfully sent regular metrics to HakonGo API", 
+				"count", len(regularMetrics), 
+				"duration_ms", time.Since(startTime).Milliseconds())
+		}
 	}
-	
-	logger.Info("Successfully sent metrics to HakonGo API", 
-		"count", len(allMetrics), 
-		"duration_ms", time.Since(startTime).Milliseconds())
+
+	// Send event metrics to API with detailed logging
+	if len(eventMetrics) > 0 {
+		logger.Info("Sending event metrics to HakonGo API", 
+			"count", len(eventMetrics), 
+			"api_url", r.apiClient.GetBaseURL())
+		
+		// Create cluster context map for event metrics
+		clusterContextMap := map[string]interface{}{
+			"name":     clusterCtx.Name,
+			"provider": clusterCtx.Provider.Name,
+			"region":   clusterCtx.Provider.Region,
+			"zone":     clusterCtx.Provider.Zone,
+			"labels":   clusterCtx.Labels,
+		}
+		
+		startTime := time.Now()
+		if err := r.apiClient.SendEventMetrics(ctx, clusterCtx.Name, clusterContextMap, eventMetrics); err != nil {
+			// Log the error but don't fail the reconciliation
+			logger.Error(err, "Failed to send event metrics to HakonGo API", 
+				"duration_ms", time.Since(startTime).Milliseconds())
+			// Continue processing even if sending metrics fails
+		} else {
+			logger.Info("Successfully sent event metrics to HakonGo API", 
+				"count", len(eventMetrics), 
+				"duration_ms", time.Since(startTime).Milliseconds())
+		}
+	}
 
 	return nil
 }
