@@ -16,8 +16,8 @@ spec:
       serviceAccountName: hakongo-connector
       containers:
       - name: manager
-        image: kubernetes.docker.internal:5000/hakongo-connector:latest
-        imagePullPolicy: IfNotPresent
+        image: ghcr.io/hakongo/kubernetes-hakongo-connector:latest
+        imagePullPolicy: Always
         env:
         - name: HAKONGO_API_KEY
           valueFrom:
