@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.17.2
-  name: connectorconfigs.hakongo.codeium.com
+  name: connectorconfigs.hakongo.com
 spec:
-  group: hakongo.codeium.com
+  group: hakongo.com
   names:
     kind: ConnectorConfig
     listKind: ConnectorConfigList

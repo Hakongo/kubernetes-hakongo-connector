@@ -4,7 +4,7 @@ metadata:
   name: hakongo-connector-role
 rules:
 - apiGroups: [""]
-  resources: ["pods", "nodes", "services", "persistentvolumes", "namespaces", "events"]
+  resources: ["pods", "nodes", "services", "persistentvolumes", "persistentvolumeclaims", "namespaces", "events", "secrets", "endpoints"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["apps"]
   resources: ["deployments", "statefulsets", "daemonsets"]
@@ -12,9 +12,12 @@ rules:
 - apiGroups: ["networking.k8s.io"]
   resources: ["ingresses"]
   verbs: ["get", "list", "watch"]
-- apiGroups: ["hakongo.io"]
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["hakongo.com"]
   resources: ["connectorconfigs"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-- apiGroups: ["hakongo.io"]
+- apiGroups: ["hakongo.com"]
   resources: ["connectorconfigs/status"]
   verbs: ["get", "update", "patch"]

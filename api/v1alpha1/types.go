@@ -1,4 +1,4 @@
-// +groupName=hakongo.codeium.com
+// +groupName=hakongo.com
 
 package v1alpha1
 

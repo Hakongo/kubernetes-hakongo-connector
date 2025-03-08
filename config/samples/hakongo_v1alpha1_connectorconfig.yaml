@@ -1,10 +1,11 @@
-apiVersion: hakongo.codeium.com/v1alpha1
+apiVersion: hakongo.com/v1alpha1
 kind: ConnectorConfig
 metadata:
   name: connector-sample
 spec:
   hakongo:
-    baseURL: "http://localhost:3000"
+    # Use our mock API server running in the cluster
+    baseURL: "http://mock-hakongo-api.default.svc.cluster.local"
     apiKey:
       name: hakongo-api-key
       key: api-key
@@ -19,12 +20,17 @@ spec:
     metadata:
       provider: "docker-desktop"
 
+  # Prometheus configuration - primary metrics source
   prometheus:
-    url: "http://10.96.151.77:9090"
+    url: "http://my-kube-prometheus-stack-prometheus.default.svc.cluster.local:9090"
     scrapeInterval: "30s"
     queryTimeout: "30s"
     serviceMonitorSelector:
       release: "my-kube-prometheus-stack"
+      
+  # Metrics Server configuration - fallback metrics source
+  metricsServer:
+    enabled: true
 
   collectors:
     - name: "pod"
