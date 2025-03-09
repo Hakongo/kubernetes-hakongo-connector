@@ -92,7 +92,7 @@ func (r *ConnectorConfigReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{RequeueAfter: time.Minute}, nil
 }
 
-func (r *ConnectorConfigReconciler) setupCollectors(ctx context.Context, config *hakongov1alpha1.ConnectorConfig, clusterCtx *cluster.ClusterContext) error {
+func (r *ConnectorConfigReconciler) setupCollectors(_ context.Context, config *hakongov1alpha1.ConnectorConfig, clusterCtx *cluster.ClusterContext) error {
 	// Determine which metrics sources to use based on user configuration
 	usePrometheus := false
 	useMetricsServer := false

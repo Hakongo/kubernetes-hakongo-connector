@@ -46,6 +46,7 @@ spec:
           apk add --no-cache jq curl
           mkdir -p /var/lib/metrics/processed
           while true; do
+            # Process regular metrics
             if [ -f /var/lib/metrics/latest.json ]; then
               cat /var/lib/metrics/latest.json | jq '.' > /var/lib/metrics/processed/formatted.json
               cat /var/lib/metrics/latest.json | jq 'length' > /var/lib/metrics/processed/count.txt
@@ -59,6 +60,19 @@ spec:
               cat /var/lib/metrics/latest.json | jq 'map(select(.resourceType | startswith("Workload"))) | length' > /var/lib/metrics/processed/workloads.txt
               echo "$(date): Processed new metrics batch" >> /var/lib/metrics/processed/log.txt
             fi
+            
+            # Process event metrics
+            if [ -f /var/lib/metrics/latest_events.json ]; then
+              cat /var/lib/metrics/latest_events.json | jq '.' > /var/lib/metrics/processed/events_formatted.json
+              cat /var/lib/metrics/latest_events.json | jq '.events | length' > /var/lib/metrics/processed/events_count.txt
+              cat /var/lib/metrics/latest_events.json | jq '.events | map(.type) | group_by(.) | map({key: .[0], count: length})' > /var/lib/metrics/processed/event_types.json
+              cat /var/lib/metrics/latest_events.json | jq '.events | map(.severity) | group_by(.) | map({key: .[0], count: length})' > /var/lib/metrics/processed/event_severities.json
+              cat /var/lib/metrics/latest_events.json | jq '.events | map(.namespace) | group_by(.) | map({key: .[0], count: length})' > /var/lib/metrics/processed/event_namespaces.json
+              cat /var/lib/metrics/latest_events.json | jq '.events | map(select(.type == "Normal")) | length' > /var/lib/metrics/processed/normal_events.txt
+              cat /var/lib/metrics/latest_events.json | jq '.events | map(select(.type == "Warning")) | length' > /var/lib/metrics/processed/warning_events.txt
+              echo "$(date): Processed new events batch" >> /var/lib/metrics/processed/log.txt
+            fi
+            
             sleep 5
           done
         resources:
@@ -125,6 +139,31 @@ data:
         # Return success response
         add_header Content-Type application/json;
         return 200 '{"status":"ok","message":"Metrics received successfully","timestamp":"$time_local","metrics_count":"$content_length"}';
+      }
+      
+      location /v1/metrics/events {
+        # Log the request details with body
+        access_log /var/log/nginx/events.log json_logs;
+        
+        # Store the latest event metrics for processing
+        client_body_in_file_only on;
+        client_body_temp_path /var/lib/metrics/;
+        set $eventsfile "/var/lib/metrics/latest_events.json";
+        rewrite_by_lua_block {
+          ngx.req.read_body()
+          local body = ngx.req.get_body_data()
+          if body then
+            local file = io.open(ngx.var.eventsfile, "w")
+            if file then
+              file:write(body)
+              file:close()
+            end
+          end
+        }
+        
+        # Return success response
+        add_header Content-Type application/json;
+        return 200 '{"status":"ok","message":"Event metrics received successfully","timestamp":"$time_local","events_count":"$content_length"}';
       }
       
       location /v1/clusters {
@@ -246,12 +285,21 @@ data:
         
         <div class="card">
           <div class="card-header">
-            <h2>Metrics Summary</h2>
+            <h2>Resource Metrics Summary</h2>
             <button class="refresh-btn" onclick="refreshData()">Refresh Data</button>
             <div class="timestamp" id="timestamp"></div>
           </div>
           <div class="metrics-grid" id="metrics-summary">
             <!-- Metrics will be populated here -->
+          </div>
+        </div>
+        
+        <div class="card">
+          <div class="card-header">
+            <h2>Event Metrics Summary</h2>
+          </div>
+          <div class="metrics-grid" id="events-summary">
+            <!-- Event metrics will be populated here -->
           </div>
         </div>
         
@@ -263,8 +311,13 @@ data:
         </div>
         
         <div class="card">
-          <h2>Latest Metrics (Raw JSON)</h2>
+          <h2>Latest Resource Metrics (Raw JSON)</h2>
           <pre id="raw-metrics">Loading...</pre>
+        </div>
+        
+        <div class="card">
+          <h2>Latest Event Metrics (Raw JSON)</h2>
+          <pre id="raw-events">Loading...</pre>
         </div>
       </div>
       
@@ -275,7 +328,7 @@ data:
             // Update timestamp
             document.getElementById('timestamp').innerText = `Last updated: ${new Date().toLocaleString()}`;
             
-            // Fetch metrics count
+            // Fetch resource metrics count
             const countResponse = await fetch('/api/metrics/count.txt');
             const count = await countResponse.text();
             
@@ -296,7 +349,7 @@ data:
             const pvs = await pvsResponse.text();
             const workloads = await workloadsResponse.text();
             
-            // Update metrics summary
+            // Update resource metrics summary
             const metricsHtml = `
               <div class="metric-box">
                 <div class="metric-label">Total Metrics</div>
@@ -333,21 +386,92 @@ data:
             `;
             document.getElementById('metrics-summary').innerHTML = metricsHtml;
             
-            // Fetch and update type distribution
+            // Fetch event metrics data
+            try {
+              const eventsCountResponse = await fetch('/api/metrics/events_count.txt');
+              const normalEventsResponse = await fetch('/api/metrics/normal_events.txt');
+              const warningEventsResponse = await fetch('/api/metrics/warning_events.txt');
+              
+              const eventsCount = await eventsCountResponse.text();
+              const normalEvents = await normalEventsResponse.text();
+              const warningEvents = await warningEventsResponse.text();
+              
+              // Update event metrics summary
+              const eventsHtml = `
+                <div class="metric-box">
+                  <div class="metric-label">Total Events</div>
+                  <div class="metric-value">${eventsCount || 0}</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">Normal Events</div>
+                  <div class="metric-value">${normalEvents || 0}</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">Warning Events</div>
+                  <div class="metric-value">${warningEvents || 0}</div>
+                </div>
+              `;
+              document.getElementById('events-summary').innerHTML = eventsHtml;
+              
+              // Fetch and update event type distribution
+              try {
+                const eventTypesResponse = await fetch('/api/metrics/event_types.json');
+                const eventTypes = await eventTypesResponse.json();
+                
+                let eventTypesHtml = '<h3>Event Types</h3><ul>';
+                eventTypes.forEach(type => {
+                  eventTypesHtml += `<li><strong>${type.key}:</strong> ${type.count} events</li>`;
+                });
+                eventTypesHtml += '</ul>';
+                
+                // Add event types to the type distribution section
+                document.getElementById('type-distribution').innerHTML += eventTypesHtml;
+              } catch (error) {
+                console.log('No event types data available yet');
+              }
+            } catch (error) {
+              console.log('No event metrics data available yet');
+              document.getElementById('events-summary').innerHTML = `
+                <div class="metric-box">
+                  <div class="metric-label">Total Events</div>
+                  <div class="metric-value">0</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">Normal Events</div>
+                  <div class="metric-value">0</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">Warning Events</div>
+                  <div class="metric-value">0</div>
+                </div>
+              `;
+            }
+            
+            // Fetch and update resource type distribution
             const typesResponse = await fetch('/api/metrics/types.json');
             const types = await typesResponse.json();
             
-            let typesHtml = '<ul>';
+            let typesHtml = '<h3>Resource Types</h3><ul>';
             types.forEach(type => {
               typesHtml += `<li><strong>${type.key}:</strong> ${type.count} metrics</li>`;
             });
             typesHtml += '</ul>';
             document.getElementById('type-distribution').innerHTML = typesHtml;
             
-            // Fetch and update raw metrics
+            // Fetch and update raw resource metrics
             const rawResponse = await fetch('/api/metrics/formatted.json');
             const rawText = await rawResponse.text();
             document.getElementById('raw-metrics').textContent = rawText;
+            
+            // Fetch and update raw event metrics
+            try {
+              const rawEventsResponse = await fetch('/api/metrics/events_formatted.json');
+              const rawEventsText = await rawEventsResponse.text();
+              document.getElementById('raw-events').textContent = rawEventsText;
+            } catch (error) {
+              console.log('No raw event metrics data available yet');
+              document.getElementById('raw-events').textContent = 'No event metrics data available yet';
+            }
             
           } catch (error) {
             console.error('Error fetching metrics data:', error);
