@@ -7,6 +7,7 @@ A powerful Kubernetes connector that provides deep insights into your cluster op
 - **Comprehensive Cluster Insights**
   - Real-time resource utilization metrics
   - Pod and node status monitoring
+  - Kubernetes event collection and analysis
   - Network traffic analysis
   - Storage usage tracking
 
@@ -114,6 +115,10 @@ make build
 # Run tests
 make test
 
+# Run specific tests
+go test -v ./internal/collector -run TestEventCollector
+go test -v ./internal/api -run TestClient_SendEventMetrics
+
 # Build Docker image
 make docker-build
 ```
@@ -158,5 +163,7 @@ MIT License - see the [LICENSE](LICENSE) file for details
 
 - [Documentation](docs/README.md)
 - [API Reference](docs/api/README.md)
+- [Event Metrics API](docs/api/event_metrics.md)
+- [Event Metrics Testing](docs/testing/event_metrics_testing.md)
 - [Architecture Guide](docs/architecture.md)
 - [Troubleshooting Guide](docs/troubleshooting.md)
