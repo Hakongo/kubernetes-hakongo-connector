@@ -1,5 +1,9 @@
 # Image URL to use all building/pushing image targets
-IMG ?= controller:latest
+VERSION ?= $(shell git describe --tags --always --dirty)
+REGISTRY ?= ghcr.io
+ORG ?= hakongo
+IMAGE_NAME ?= kubernetes-hakongo-connector
+IMG ?= $(REGISTRY)/$(ORG)/$(IMAGE_NAME):$(VERSION)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.29.0
 
@@ -61,17 +65,25 @@ run: fmt vet generate manifests ## Run a controller from your host.
 
 .PHONY: docker-build
 docker-build: ## Build docker image with the manager.
-	docker build -t ${IMG} .
+	docker build -t ${IMG} --build-arg VERSION=$(VERSION) .
 
 .PHONY: docker-push
 docker-push: ## Push docker image with the manager.
 	docker push ${IMG}
 
+.PHONY: docker-buildx
+docker-buildx: ## Build and push multi-platform docker image with buildx
+	docker buildx build --platform linux/amd64,linux/arm64 --push -t ${IMG} --build-arg VERSION=$(VERSION) .
+
+.PHONY: release
+release: docker-build docker-push ## Build and push a release
+
 ##@ Deployment
 
 .PHONY: deploy
 deploy: ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	kubectl apply -f manifests/
+	@sed -e 's|ghcr.io/hakongo/kubernetes-hakongo-connector:latest|$(IMG)|g' manifests/manager.yaml | kubectl apply -f -
+	kubectl apply -f manifests/mock-api.yaml
 
 .PHONY: undeploy
 undeploy: ## Undeploy controller from the K8s cluster specified in ~/.kube/config.
